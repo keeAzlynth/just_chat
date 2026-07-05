@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,7 +81,7 @@ fun ChatScreen(
         drawerState = drawerState,
         drawerContent = {
             OnlineUsersDrawer(
-                users = state.onlineUsers,
+                users = state.onlineUsers.values.toList(),
                 currentUser = state.nickname,
                 selectedUser = state.selectedPrivateUser,
                 groups = state.groups,
@@ -126,16 +127,27 @@ private fun ChatContent(
 
     val messageCount = remember { derivedStateOf { messages.size } }
 
-    LaunchedEffect(messageCount.value) {
-        if (messageCount.value > 0) listState.animateScrollToItem(messageCount.value - 1)
+    // Smart auto-scroll: only scroll to bottom if user is near the bottom
+    val isAtBottom = remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val total = listState.layoutInfo.totalItemsCount
+            total == 0 || lastVisible >= total - 2
+        }
     }
 
-    val listItems = remember(messages) { messagesToListItems(messages) }
+    LaunchedEffect(messageCount.value) {
+        if (messageCount.value > 0 && isAtBottom.value) {
+            listState.animateScrollToItem(messageCount.value - 1)
+        }
+    }
+
+    val listItems = remember(messages.size) { messagesToListItems(messages) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ChatBackground()
 
-        if (messages.isEmpty() && !state.isSearching) {
+        if (messageCount.value == 0 && !state.isSearching) {
             EmptyChatPlaceholder(
                 modifier = Modifier.align(Alignment.Center),
             )
@@ -187,7 +199,7 @@ private fun ChatContent(
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 state = listState,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 70.dp),
             ) {
                 items(
                     count = listItems.size,
@@ -207,6 +219,8 @@ private fun ChatContent(
                     when (val item = listItems[idx]) {
                         is ChatListItem.MessageItem -> MessageBubble(
                             message = item.message,
+                            isFirstInGroup = item.isFirstInGroup,
+                            isLastInGroup = item.isLastInGroup,
                             onRecallMessage = actions.onRecallMessage,
                             onQuoteMessage = actions.onQuoteMessage,
                             onDeleteMessage = actions.onDeleteMessage,
@@ -223,6 +237,13 @@ private fun ChatContent(
                         )
                         is ChatListItem.DateSeparatorItem -> DateSeparator(item.date)
                     }
+                }
+            }
+
+            // Loading indicator
+            if (state.isLoadingMore) {
+                Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = PrimaryBlue.copy(alpha = 0.6f))
                 }
             }
         }
@@ -246,9 +267,10 @@ private fun ChatContent(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 90.dp),
         )
 
-        // Bottom bar
+        // Bottom bar with frosted glass
         Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
+                .frostedGlass(cornerRadius = 0.dp, backgroundAlpha = 0.72f),
         ) {
             AnimatedVisibility(visible = state.typingUsers.isNotEmpty()) {
                 TypingIndicator(state.typingUsers)

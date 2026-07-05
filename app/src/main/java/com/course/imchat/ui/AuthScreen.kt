@@ -364,7 +364,7 @@ private fun AuthLogo() {
             .clip(CircleShape)
             .background(
                 brush = Brush.linearGradient(
-                    colors = listOf(PrimaryBlue, AccentPurple)
+                    colors = listOf(PrimaryBlue, PrimaryBlue)
                 )
             ),
         contentAlignment = Alignment.Center,

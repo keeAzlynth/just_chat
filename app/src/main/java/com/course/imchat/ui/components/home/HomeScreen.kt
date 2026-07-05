@@ -127,7 +127,7 @@ fun HomeScreen(
                                     if (group != null) onSelectGroup(group)
                                 }
                                 else -> {
-                                    val user = state.onlineUsers.find { it.userId == chatItem.id }
+                                    val user = state.onlineUsers[chatItem.id]
                                     if (user != null) onSelectPrivateChat(user)
                                 }
                             }
@@ -344,7 +344,7 @@ private fun buildChatItems(state: ChatUiState, messages: List<ChatMessage>): Lis
     )
 
     // 私聊
-    state.onlineUsers.forEach { user ->
+    state.onlineUsers.values.forEach { user ->
         val lastMessage = lastPrivateByUser[user.userId]
         items.add(
             ChatItem(

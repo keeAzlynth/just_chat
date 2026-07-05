@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,7 +71,6 @@ import com.course.imchat.ui.ReceivedBubbleLight
 import com.course.imchat.ui.SuccessGreen
 import com.course.imchat.ui.TgAvatar
 import com.course.imchat.ui.avatarColor
-import java.util.regex.Pattern
 import kotlin.math.roundToInt
 
 private const val SWIPE_THRESHOLD = 100f
@@ -93,6 +93,8 @@ fun MessageBubble(
     onAddReaction: (ChatMessage, String) -> Unit = { _, _ -> },
     onShowReactionPicker: (String) -> Unit = {},
     onViewImage: (ChatMessage) -> Unit = {},
+    isFirstInGroup: Boolean = true,
+    isLastInGroup: Boolean = true,
 ) {
     val isMine = message.isMine
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
@@ -108,44 +110,50 @@ fun MessageBubble(
         label = "swipeOffset"
     )
     
-    val bubbleShape = remember(isMine) {
+    val bubbleShape = remember(isMine, isFirstInGroup, isLastInGroup) {
         RoundedCornerShape(
-            topStart = if (isMine) 20.dp else 6.dp,
-            topEnd = if (isMine) 6.dp else 20.dp,
-            bottomStart = 20.dp,
-            bottomEnd = 20.dp,
+            topStart = if (isMine) if (isFirstInGroup) 20.dp else 8.dp else if (isFirstInGroup) 6.dp else 2.dp,
+            topEnd = if (isMine) if (isFirstInGroup) 6.dp else 2.dp else if (isFirstInGroup) 20.dp else 8.dp,
+            bottomStart = if (isLastInGroup) 20.dp else 8.dp,
+            bottomEnd = if (isLastInGroup) 20.dp else 8.dp,
         )
     }
     
     val bubbleBrush = remember(isMine, isDarkTheme, isSelected) {
         if (isSelected) {
-            Brush.linearGradient(
-                colors = listOf(
-                    PrimaryBlue.copy(alpha = 0.3f),
-                    PrimaryBlue.copy(alpha = 0.2f)
-                )
-            )
+            Brush.linearGradient(listOf(PrimaryBlue.copy(alpha = 0.15f), PrimaryBlue.copy(alpha = 0.10f)))
         } else if (isMine) {
-            Brush.linearGradient(colors = listOf(PrimaryBlue, PrimaryBlueDark))
+            // Sent: Telegram green tint (light) / dark blue (dark)
+            if (isDarkTheme) Brush.linearGradient(listOf(Color(0xFF2B5278), Color(0xFF2B5278)))
+            else Brush.linearGradient(listOf(Color(0xFFEEFFDE), Color(0xFFEEFFDE)))
         } else {
-            Brush.linearGradient(
-                colors = if (isDarkTheme) listOf(
-                    ReceivedBubbleDark,
-                    ReceivedBubbleDark.copy(alpha = 0.95f)
-                ) else listOf(
-                    ReceivedBubbleLight,
-                    Color(0xFFF8FAFC)
-                )
-            )
+            // Received: white (light) / dark surface (dark)
+            if (isDarkTheme) Brush.linearGradient(listOf(Color(0xFF182533), Color(0xFF182533)))
+            else Brush.linearGradient(listOf(Color.White, Color.White))
         }
     }
 
-    // Text colors for received bubbles — guaranteed contrast across themes
-    val bubbleTextColor = if (isMine) Color.White
-        else if (isDarkTheme) Color(0xFFF1F5F9)
-        else Color(0xFF1E293B)
-    val bubbleTimeColor = bubbleTextColor.copy(alpha = 0.5f)
-    val bubbleSubColor = bubbleTextColor.copy(alpha = 0.7f)
+    // Bubble border — Telegram uses 1px subtle border to separate from bg
+    val bubbleBorderColor = if (isSelected) PrimaryBlue.copy(alpha = 0.4f)
+        else if (isMine) {
+            if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFD4E9C7)  // green border
+        } else {
+            if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFE5E7EB)   // gray border
+        }
+
+    // Text colors — guaranteed high contrast
+    val bubbleTextColor = if (isMine) {
+        if (isDarkTheme) Color.White else Color(0xFF000000)
+    } else {
+        if (isDarkTheme) Color(0xFFF5F5F5) else Color(0xFF000000)
+    }
+
+    val bubbleTimeColor = if (isMine) {
+        if (isDarkTheme) Color.White.copy(alpha = 0.5f) else Color(0xFF8CA68A)
+    } else {
+        if (isDarkTheme) Color(0xFF7B8794) else Color(0xFF8E8E93)
+    }
+    val bubbleSubColor = bubbleTimeColor
 
     if (showContextMenu) {
         MessageContextMenu(
@@ -265,16 +273,19 @@ fun MessageBubble(
                 },
             horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         ) {
-            if (!isMine) {
+            if (!isMine && isFirstInGroup) {
                 TgAvatar(name = message.nickname, size = 36.dp)
                 Spacer(modifier = Modifier.width(8.dp))
+            }
+            if (!isMine && !isFirstInGroup) {
+                Spacer(modifier = Modifier.width(44.dp))  // avatar placeholder
             }
 
             Column(
                 modifier = Modifier.widthIn(max = 280.dp),
                 horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
             ) {
-                if (!isMine) {
+                if (!isMine && isFirstInGroup) {
                     Text(
                         text = message.nickname,
                         modifier = Modifier.padding(start = 6.dp, bottom = 3.dp),
@@ -287,13 +298,14 @@ fun MessageBubble(
                 Box(
                     modifier = Modifier
                         .shadow(
-                            elevation = if (isMine) 4.dp else 2.dp,
+                            elevation = if (isMine) 1.dp else 1.dp,
                             shape = bubbleShape,
-                            ambientColor = if (isMine) PrimaryBlue.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.1f),
-                            spotColor = if (isMine) PrimaryBlue.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.15f),
+                            ambientColor = Color.Black.copy(alpha = 0.04f),
+                            spotColor = Color.Black.copy(alpha = 0.06f),
                         )
                         .clip(bubbleShape)
                         .background(brush = bubbleBrush)
+                        .border(0.5.dp, bubbleBorderColor, bubbleShape)
                         .combinedClickable(
                             onClick = {
                                 when {
@@ -436,11 +448,12 @@ fun MessageBubble(
                         }
                     }
 
-                    // Time detail popup (Telegram style)
+                    // Time detail (inline text)
                     if (showTimeDetail) {
-                        MessageTimeDetailPopup(
-                            message = message,
-                            onDismiss = { showTimeDetail = false },
+                        Text(
+                            text = message.formattedTime(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.padding(top = 2.dp),
                         )
                     }
@@ -497,164 +510,4 @@ private fun copyToClipboard(context: Context, text: String) {
     val clip = ClipData.newPlainText("chat_message", text)
     clipboard.setPrimaryClip(clip)
     Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
-}
-
-// ── URL preview card (Telegram style) ─────────────────────
-
-private val URL_REGEX = Pattern.compile("https?://[\\w\\-._~:/?#@!$&'()*+,;=%]+")
-
-private fun extractUrl(text: String): String? {
-    val matcher = URL_REGEX.matcher(text)
-    return if (matcher.find()) matcher.group() else null
-}
-
-@Composable
-private fun LinkPreviewCard(url: String, isMine: Boolean) {
-    val isDark = isSystemInDarkTheme()
-    val domain = remember(url) {
-        try { java.net.URI(url).host ?: url } catch (_: Exception) { url }
-    }
-    val bgColor = if (isMine) Color.White.copy(alpha = 0.08f)
-                  else if (isDark) Color(0xFF334155).copy(alpha = 0.3f)
-                  else Color(0xFFF1F5F9)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Link icon
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (isMine) Color.White.copy(alpha = 0.1f) else PrimaryBlue.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "\uD83D\uDD17",
-                fontSize = 14.sp,
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = domain,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isMine) Color.White.copy(alpha = 0.7f) else PrimaryBlue,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = url.take(60) + if (url.length > 60) "..." else "",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isMine) Color.White.copy(alpha = 0.4f)
-                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 10.sp,
-            )
-        }
-    }
-}
-
-/**
- * 消息时间详情弹出框 - 仿 Telegram 风格
- * 点击消息的已读/送达状态时显示精确时间和状态
- */
-@Composable
-fun MessageTimeDetailPopup(
-    message: ChatMessage,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-
-    // Format full datetime - use remember to avoid non-observable Locale reads
-    val dateDetail = remember(message.timestampSeconds) {
-        val date = java.util.Date(message.timestampSeconds * 1000)
-        val dateFormat = java.text.SimpleDateFormat("yyyy年M月d日", java.util.Locale.getDefault())
-        val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-        val dayOfWeek = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(date)
-        Triple(dateFormat.format(date), timeFormat.format(date), dayOfWeek)
-    }
-    val (dateStr, timeStr, dayOfWeekStr) = dateDetail
-
-    Surface(
-        modifier = modifier
-            .widthIn(min = 140.dp),
-        shape = RoundedCornerShape(12.dp),
-        shadowElevation = 8.dp,
-        color = if (isDark) Color(0xFF1E293B) else Color.White,
-        tonalElevation = 4.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.Start,
-        ) {
-            // Date row
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "\uD83D\uDCC5",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "\uD83D\uDCC5 $dateStr $dayOfWeekStr",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isDark) Color(0xFFF1F5F9) else Color(0xFF1E293B),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Time row
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "\uD83D\uDD52",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "\uD83D\uDD52 $timeStr",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryBlue,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Status row
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = when (message.deliveryStatus) {
-                        com.course.imchat.DeliveryStatus.Sending -> "\uD83D\uDCE4"
-                        com.course.imchat.DeliveryStatus.Sent -> "\u2709\uFE0F"
-                        com.course.imchat.DeliveryStatus.Delivered -> "\uD83D\uDCEC"
-                        com.course.imchat.DeliveryStatus.Read -> "\uD83D\uDC41\uFE0F"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = when (message.deliveryStatus) {
-                        com.course.imchat.DeliveryStatus.Sending -> "发送中"
-                        com.course.imchat.DeliveryStatus.Sent -> "已发送"
-                        com.course.imchat.DeliveryStatus.Delivered -> "已送达"
-                        com.course.imchat.DeliveryStatus.Read -> "已读"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (message.isRead()) SuccessGreen
-                           else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
 }

@@ -27,10 +27,12 @@ import com.course.imchat.ChatGroup
 import com.course.imchat.ChatUiState
 import com.course.imchat.ConnectionStatus
 import com.course.imchat.OnlineUser
+
 import com.course.imchat.ChatMessage
 import com.course.imchat.ui.components.home.ContactsScreen
 import com.course.imchat.ui.components.home.HomeScreen
-import com.course.imchat.ui.components.home.ProfileScreen
+import com.course.imchat.ui.components.home.MyProfileScreen
+import com.course.imchat.ui.components.home.SavedMessagesScreen
 
 // 导航状态
 enum class Screen {
@@ -106,6 +108,7 @@ fun ChatApp(
 ) {
     var currentScreen by remember { mutableStateOf(Screen.Home) }
     var selectedUser by remember { mutableStateOf<OnlineUser?>(null) }
+    var showSavedMessages by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // ── Back gesture: go to previous screen, not exit app ──
@@ -163,13 +166,7 @@ fun ChatApp(
                         icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
                         label = { Text("我的") },
                         selected = currentScreen == Screen.Profile,
-                        onClick = {
-                            selectedUser = OnlineUser(
-                                userId = state.myUserId.orEmpty(),
-                                nickname = state.nickname,
-                            )
-                            currentScreen = Screen.Profile
-                        },
+                        onClick = { currentScreen = Screen.Profile },
                     )
                 }
             }
@@ -283,7 +280,7 @@ fun ChatApp(
                         }
                         Screen.Contacts -> {
                             ContactsScreen(
-                                onlineUsers = state.onlineUsers,
+                                onlineUsers = state.onlineUsers.values.toList(),
                                 currentUserId = state.myUserId,
                                 onSelectUser = { user ->
                                     onSelectPrivateUser(user)
@@ -293,17 +290,12 @@ fun ChatApp(
                             )
                         }
                         Screen.Profile -> {
-                            selectedUser?.let { user ->
-                                ProfileScreen(
-                                    user = user,
-                                    isOnline = state.onlineUsers.any { it.userId == user.userId },
-                                    onSendMessage = {
-                                        onSelectPrivateUser(user)
-                                        currentScreen = Screen.Chat
-                                    },
-                                    onBack = { currentScreen = Screen.Home },
-                                )
-                            }
+                            MyProfileScreen(
+                                state = state,
+                                onOpenSaved = { showSavedMessages = true },
+                                onOpenSettings = { currentScreen = Screen.Settings },
+                                onLogout = onLogout,
+                            )
                         }
                         Screen.Settings -> {
                             SettingsScreen(
@@ -354,6 +346,32 @@ fun ChatApp(
                 TextButton(onClick = onDismissCreateGroupDialog) {
                     Text("取消")
                 }
+            },
+        )
+    }
+
+    // Saved messages overlay
+    if (showSavedMessages) {
+        SavedMessagesScreen(
+            state = state,
+            onClose = { showSavedMessages = false },
+            onUnsave = { saved -> onSaveToCollection(saved.message) },
+            onJumpToChat = { saved ->
+                showSavedMessages = false
+                when {
+                    saved.chatId.startsWith("group_") -> {
+                        val group = state.groups.find { it.groupId == saved.chatId.removePrefix("group_") }
+                        if (group != null) onSelectGroup(group)
+                    }
+                    saved.chatId == "public" -> {
+                        onSelectPrivateUser(null)
+                    }
+                    else -> {
+                        val user = state.onlineUsers.values.toList().find { it.userId == saved.chatId.removePrefix("private_") }
+                        if (user != null) onSelectPrivateUser(user)
+                    }
+                }
+                currentScreen = Screen.Chat
             },
         )
     }
