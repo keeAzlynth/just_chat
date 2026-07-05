@@ -52,8 +52,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.course.imchat.ChatMessage
-import com.course.imchat.ui.AccentPurple
 import com.course.imchat.ui.PrimaryBlue
+import com.course.imchat.ui.ErrorRed
 
 @Composable
 fun InputBar(
@@ -94,7 +94,7 @@ fun InputBar(
     val iconColor = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B)
 
     val sendButtonBrush = remember(canSend) {
-        if (canSend) Brush.linearGradient(listOf(PrimaryBlue, AccentPurple))
+        if (canSend) Brush.linearGradient(listOf(PrimaryBlue, PrimaryBlue))
         else Brush.linearGradient(
             listOf(
                 Color.Gray.copy(alpha = 0.2f),
@@ -246,6 +246,16 @@ fun InputBar(
                     }
                 }
 
+                // Character count (show when approaching limit)
+                if (draft.length > 180) {
+                    Text(
+                        text = "${draft.length}/500",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (draft.length > 450) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
+
                 // ── Send button ──
                 val sendScale by animateFloatAsState(
                     targetValue = if (canSend) 1f else 0.85f,
@@ -291,7 +301,7 @@ fun EditingMessageIndicator(
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 4.dp),
         shape = RoundedCornerShape(8.dp),
-        color = AccentPurple.copy(alpha = 0.1f),
+        color = PrimaryBlue.copy(alpha = 0.1f),
     ) {
         Row(
             modifier = Modifier.padding(8.dp),
@@ -301,14 +311,14 @@ fun EditingMessageIndicator(
                 modifier = Modifier
                     .width(3.dp)
                     .height(36.dp)
-                    .background(color = AccentPurple, shape = RoundedCornerShape(2.dp))
+                    .background(color = PrimaryBlue, shape = RoundedCornerShape(2.dp))
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "编辑消息",
                     style = MaterialTheme.typography.labelSmall,
-                    color = AccentPurple,
+                    color = PrimaryBlue,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -47,101 +46,6 @@ import androidx.compose.ui.unit.sp
 import com.course.imchat.ui.PrimaryBlue
 import java.util.regex.Pattern
 
-// ── Unified token-based parser ────────────────────────────
-// Handles markdown + @mentions simultaneously in a single pass
-
-private sealed class MdToken {
-    data class Text(val content: String) : MdToken()
-    data class Bold(val content: String) : MdToken()
-    data class Italic(val content: String) : MdToken()
-    data class Strikethrough(val content: String) : MdToken()
-    data class InlineCode(val content: String) : MdToken()
-    data class Header(val level: Int, val content: String) : MdToken()
-    data class Link(val text: String, val url: String) : MdToken()
-    data class Url(val url: String) : MdToken()
-    data class CodeBlock(val content: String, val language: String = "") : MdToken()
-    data class Mention(val name: String) : MdToken()
-}
-
-/**
- * Parse text into tokens, supporting both markdown AND @mentions simultaneously.
- * Steps:
- * 1. Extract code blocks first (protected from other parsing)
- * 2. Parse remaining text for inline markdown + mentions
- */
-private fun parseTokens(text: String): List<MdToken> {
-    val tokens = mutableListOf<MdToken>()
-    var remaining = text
-
-    // Step 1: Extract fenced code blocks ```...```
-    val codeBlockRegex = Pattern.compile("```(?:(\\w*)\\n)?([\\s\\S]*?)```")
-    val codeBlockMatcher = codeBlockRegex.matcher(remaining)
-    var lastEnd = 0
-    while (codeBlockMatcher.find()) {
-        if (codeBlockMatcher.start() > lastEnd) {
-            parseInline(remaining.substring(lastEnd, codeBlockMatcher.start()), tokens)
-        }
-        val lang = codeBlockMatcher.group(1) ?: ""
-        tokens.add(MdToken.CodeBlock(codeBlockMatcher.group(2).trim(), lang.trim()))
-        lastEnd = codeBlockMatcher.end()
-    }
-    if (lastEnd < remaining.length) {
-        parseInline(remaining.substring(lastEnd), tokens)
-    }
-    return tokens
-}
-
-private fun parseInline(text: String, tokens: MutableList<MdToken>) {
-    // Combined regex: mentions, links, bold, italic, strikethrough, inline code, URLs, headers
-    val pattern = Pattern.compile(
-        "@(\\w[\\w.]*)" +                          // @mention
-        "|\\[([^]]+)]\\(([^)]+)\\)" +             // [text](url)
-        "|\\*\\*(.+?)\\*\\*" +                    // **bold**
-        "|(?<![*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![*\\w])" + // *italic*
-        "|~~(.+?)~~" +                             // ~~strike~~
-        "|`([^`]+)`" +                             // `code`
-        "|(https?://\\S+)"                         // plain URL
-    )
-    val matcher = pattern.matcher(text)
-    var lastEnd = 0
-    while (matcher.find()) {
-        if (matcher.start() > lastEnd) {
-            // Check if there's a header before this match
-            val prefix = text.substring(lastEnd, matcher.start())
-            val headerIdx = prefix.indexOfFirst { it in "#" }
-            if (headerIdx >= 0) {
-                tokens.add(MdToken.Text(prefix))
-            } else {
-                tokens.add(MdToken.Text(prefix))
-            }
-        }
-        when {
-            matcher.group(1) != null -> tokens.add(MdToken.Mention(matcher.group(1)))
-            matcher.group(2) != null -> tokens.add(MdToken.Link(matcher.group(2), matcher.group(3)))
-            matcher.group(4) != null -> tokens.add(MdToken.Bold(matcher.group(4)))
-            matcher.group(5) != null -> tokens.add(MdToken.Italic(matcher.group(5)))
-            matcher.group(6) != null -> tokens.add(MdToken.Strikethrough(matcher.group(6)))
-            matcher.group(7) != null -> tokens.add(MdToken.InlineCode(matcher.group(7)))
-            matcher.group(8) != null -> tokens.add(MdToken.Url(matcher.group(8)))
-        }
-        lastEnd = matcher.end()
-    }
-    if (lastEnd < text.length) {
-        val suffix = text.substring(lastEnd)
-        // Check for markdown-style headers at line starts
-        val lines = suffix.split("\n")
-        lines.forEachIndexed { i, line ->
-            if (i > 0) tokens.add(MdToken.Text("\n"))
-            val headerMatch = Regex("^(#{1,6})\\s+(.*)").find(line)
-            if (headerMatch != null) {
-                tokens.add(MdToken.Header(headerMatch.groupValues[1].length, headerMatch.groupValues[2]))
-            } else {
-                tokens.add(MdToken.Text(line))
-            }
-        }
-    }
-}
-
 // ── Compose renderer (optimized: single Text for inline, Column only for blocks) ─────────
 
 @Composable
@@ -151,7 +55,7 @@ fun MessageText(
     modifier: Modifier = Modifier,
 ) {
     val isDark = isSystemInDarkTheme()
-    val tokens = remember(text) { parseTokens(text) }
+    val tokens = remember(text) { MarkdownParser.parse(text) }
 
     // Check if we have block-level elements that require Column layout
     val hasBlocks = tokens.any { it is MdToken.CodeBlock || it is MdToken.Header }

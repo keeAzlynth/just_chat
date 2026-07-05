@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.course.imchat.core.delegate.*
 import com.course.imchat.data.*
 import com.course.imchat.data.cache.AppCache
+import com.course.imchat.data.cache.ChatCacheKey
 import com.course.imchat.data.cache.MessageCache
+import com.course.imchat.data.cache.PersistentCache
 import com.course.imchat.data.cache.SessionCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -132,7 +134,7 @@ class ChatViewModel(
                 val found = event.users.find { it.userId == selectedId }
                 _uiState.update {
                     it.copy(
-                        onlineUsers = event.users,
+                        onlineUsers = event.users.associateBy { u -> u.userId },
                         selectedUserOnline = found != null,
                         selectedUserLastSeen = if (found == null) 0 else System.currentTimeMillis() / 1000,
                     )
@@ -142,17 +144,20 @@ class ChatViewModel(
             is IncomingEvent.MessageHistory -> {
                 val msgs = event.messages.map { it.toChatMessage(true) }
                 if (messages.isEmpty()) messages.addAll(msgs)
-                AppCache.cacheMessages("public", msgs)
+                AppCache.cacheMessages(ChatCacheKey.PUBLIC, msgs)
+                PersistentCache.saveMessages(ChatCacheKey.PUBLIC, messages.toList())
             }
             is IncomingEvent.PrivateMessageHistory -> {
                 val msgs = event.messages.map { it.toChatMessage(true) }
                 if (messages.isEmpty()) messages.addAll(msgs)
-                AppCache.cacheMessages("private_${event.otherUserId}", msgs)
+                AppCache.cacheMessages(ChatCacheKey.privateChat(event.otherUserId), msgs)
+                PersistentCache.saveMessages(ChatCacheKey.privateChat(event.otherUserId), messages.toList())
             }
             is IncomingEvent.GroupMessageHistory -> {
                 val msgs = event.messages.map { it.toChatMessage(true) }
                 if (messages.isEmpty()) messages.addAll(msgs)
-                AppCache.cacheMessages("group_${event.groupId}", msgs)
+                AppCache.cacheMessages(ChatCacheKey.groupChat(event.groupId), msgs)
+                PersistentCache.saveMessages(ChatCacheKey.groupChat(event.groupId), messages.toList())
                 _uiState.update { it.copy(isLoadingMore = false, hasMoreMessages = event.messages.size >= 50) }
             }
             is IncomingEvent.GroupCreated -> group.onGroupCreated(event.groupId, event.name, event.ownerId).also {
@@ -202,7 +207,14 @@ class ChatViewModel(
     fun selectAllMessages() = message.selectAllMessages()
     fun toggleSearch() = message.toggleSearch()
     fun onSearchQueryChange(q: String) = message.onSearchQueryChange(q)
-    fun onDraftChange(text: String) = message.onDraftChange(text)
+    fun onDraftChange(text: String) { message.onDraftChange(text); saveDraftForCurrentChat(text) }
+
+    private fun saveDraftForCurrentChat(text: String) {
+        PersistentCache.saveDraft(
+            ChatCacheKey.forChat(_uiState.value.selectedGroup?.groupId, _uiState.value.selectedPrivateUser?.userId),
+            text
+        )
+    }
     fun addReaction(msgId: String, emoji: String) = message.addReaction(msgId, emoji)
     fun showReactionPicker(msgId: String) = message.showReactionPicker(msgId)
     fun dismissReactionPicker() = message.dismissReactionPicker()
@@ -213,13 +225,14 @@ class ChatViewModel(
         messages.clear()
         _uiState.update { it.copy(isLoadingMore = false, hasMoreMessages = true) }
         if (grp != null) {
-            // Try cache first
-            val cached = AppCache.getCachedMessages("group_${grp.groupId}")
-            if (!cached.isNullOrEmpty()) {
-                messages.addAll(cached)
-            }
+            val key = ChatCacheKey.groupChat(grp.groupId)
+            val draft = PersistentCache.loadDraft(key)
+            if (!draft.isNullOrBlank()) _uiState.update { it.copy(draft = draft) }
+            val diskMsgs = PersistentCache.loadMessages(key)
+            if (!diskMsgs.isNullOrEmpty()) { messages.addAll(diskMsgs); return@selectGroup }
+            val cached = AppCache.getCachedMessages(key)
+            if (!cached.isNullOrEmpty()) { messages.addAll(cached); return@selectGroup }
             repository.getGroupMessageHistory(grp.groupId, 50)
-            // Load group members for @mention
             viewModelScope.launch {
                 kotlinx.coroutines.delay(300)
                 repository.getGroupMembers(grp.groupId)
@@ -231,11 +244,11 @@ class ChatViewModel(
         messages.clear()
         _uiState.update { it.copy(isLoadingMore = false, hasMoreMessages = true) }
         if (user != null) {
-            // Try cache first
-            val cached = AppCache.getCachedMessages("private_${user.userId}")
-            if (!cached.isNullOrEmpty()) {
-                messages.addAll(cached)
-            }
+            val key = ChatCacheKey.privateChat(user.userId)
+            val diskMsgs = PersistentCache.loadMessages(key)
+            if (!diskMsgs.isNullOrEmpty()) { messages.addAll(diskMsgs); return@selectPrivateUser }
+            val cached = AppCache.getCachedMessages(key)
+            if (!cached.isNullOrEmpty()) { messages.addAll(cached); return@selectPrivateUser }
             repository.getPrivateMessageHistory(user.userId, 50)
         }
     }
@@ -250,7 +263,7 @@ class ChatViewModel(
         val candidates = if (s.selectedGroup != null) {
             s.selectedGroup.members
         } else {
-            s.onlineUsers
+            s.onlineUsers.values.toList()
         }
         _uiState.update { it.copy(showMentionPicker = true, mentionCandidates = candidates) }
     }
@@ -260,6 +273,33 @@ class ChatViewModel(
     fun selectMention(user: OnlineUser) {
         val mentionText = "@${user.nickname} "
         _uiState.update { it.copy(draft = it.draft + mentionText, showMentionPicker = false) }
+    }
+
+    // ── Polls ──────────────────────────────────────────
+    fun showCreatePollDialog() = _uiState.update { it.copy(showCreatePollDialog = true, pollTitle = "", pollOptions = "") }
+    fun dismissCreatePollDialog() = _uiState.update { it.copy(showCreatePollDialog = false) }
+    fun onPollTitleChange(t: String) = _uiState.update { it.copy(pollTitle = t) }
+    fun onPollOptionsChange(o: String) = _uiState.update { it.copy(pollOptions = o) }
+
+    fun createPoll() {
+        val s = _uiState.value
+        val title = s.pollTitle.trim()
+        val options = s.pollOptions.split("\n").filter { it.isNotBlank() }
+        if (title.isEmpty() || options.size < 2) return
+        val pollText = "📊 $title\n" + options.joinToString("\n")
+        _uiState.update { it.copy(draft = pollText, showCreatePollDialog = false, pollTitle = "", pollOptions = "") }
+    }
+
+    fun votePoll(messageId: String, optionId: String) {
+        val myId = _uiState.value.myUserId ?: return
+        _uiState.update { s ->
+            val poll = s.activePolls[messageId] ?: PollState()
+            val newVotes = poll.votes.toMutableMap()
+            val existing = newVotes[optionId]?.toMutableSet() ?: mutableSetOf()
+            if (existing.contains(myId)) { existing.remove(myId); if (existing.isEmpty()) newVotes.remove(optionId) }
+            else existing.add(myId).also { newVotes[optionId] = existing }
+            s.copy(activePolls = s.activePolls + (messageId to PollState(newVotes, false)))
+        }
     }
     // ── Voice Recording ───────────────────────────────────
     fun startVoiceRecording() {

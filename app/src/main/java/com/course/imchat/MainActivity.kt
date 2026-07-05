@@ -1,6 +1,7 @@
 package com.course.imchat
 
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -8,54 +9,26 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.course.imchat.data.MessageRepository
-import com.course.imchat.data.cache.MessageCache
-import com.course.imchat.data.cache.SessionCache
 import com.course.imchat.ui.ChatApp
 import com.course.imchat.ui.theme.IMChatTheme
-import android.provider.OpenableColumns
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize local dependencies
-        val messageCache = MessageCache(applicationContext)
-        val sessionCache = SessionCache(applicationContext)
-
-        // Initialize notification channel
-        com.course.imchat.core.notification.NotificationHelper.createChannel(applicationContext)
-
         setContent {
-            val viewModel: ChatViewModel = viewModel(
-                factory = ChatViewModelFactory(messageCache, sessionCache, applicationContext)
-            )
+            val viewModel: ChatViewModel = viewModel()
             val state by viewModel.uiState.collectAsState()
 
-            // ── Image picker ──────────────────────────────────
             val imagePicker = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
-            ) { uri ->
-                uri?.let { selectedUri ->
-                    val fileName = getFileName(selectedUri) ?: "image.jpg"
-                    viewModel.sendImage(selectedUri, fileName)
-                }
-            }
+            ) { uri -> uri?.let { viewModel.sendImage(it, getName(it) ?: "image.jpg") } }
 
-            // ── File picker ─────────────────────────────────
             val filePicker = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
-            ) { uri ->
-                uri?.let { selectedUri ->
-                    val fileName = getFileName(selectedUri) ?: "file"
-                    val fileSize = getFileSize(selectedUri)
-                    viewModel.sendFile(selectedUri, fileName, fileSize)
-                }
-            }
+            ) { uri -> uri?.let { viewModel.sendFile(it, getName(it) ?: "file", 0) } }
 
             IMChatTheme(darkTheme = state.isDarkMode) {
                 ChatApp(
@@ -78,87 +51,59 @@ class MainActivity : ComponentActivity() {
                     onSelectPrivateUser = viewModel::selectPrivateUser,
                     onAttachFile = viewModel::toggleAttachmentSheet,
                     onPickImage = { imagePicker.launch("image/*") },
-                    onTakePhoto = { imagePicker.launch("image/*") },
+                    onTakePhoto = {},
                     onPickFile = { filePicker.launch("*/*") },
                     onToggleSearch = viewModel::toggleSearch,
                     onSearchQueryChange = viewModel::onSearchQueryChange,
                     onRecallMessage = viewModel::recallMessage,
                     onToggleDarkMode = viewModel::toggleDarkMode,
-                    onToggleGroupManagement = viewModel::toggleGroupManagement,
+                    onToggleGroupManagement = viewModel.group::toggleGroupManagement,
                     onCreateGroup = viewModel::createGroup,
                     onSelectGroup = viewModel::selectGroup,
                     onJoinGroup = viewModel::joinGroup,
                     onLeaveGroup = viewModel::leaveGroup,
                     onJoin = viewModel::join,
-                    onQuoteMessage = viewModel::quoteMessage,
-                    onCancelQuote = viewModel::cancelQuote,
+                    onQuoteMessage = { viewModel.quoteMessage(it) },
+                    onCancelQuote = { viewModel.cancelQuote() },
                     onDeleteMessage = viewModel::deleteMessage,
-                    onEditMessage = viewModel::startEditMessage,
-                    onCancelEditMessage = viewModel::cancelEditMessage,
-                    onSaveEditMessage = viewModel::saveEditMessage,
-                    onForwardMessage = viewModel::startForwardMessage,
-                    onPinMessage = viewModel::pinMessage,
-                    onSaveToCollection = viewModel::saveMessage,
-                    onSelectMessage = { viewModel.toggleMessageSelection(it.id) },
+                    onEditMessage = { viewModel.startEditMessage(it) },
+                    onCancelEditMessage = { viewModel.cancelEditMessage() },
+                    onSaveEditMessage = { viewModel.saveEditMessage() },
+                    onForwardMessage = { viewModel.startForwardMessage(it) },
+                    onPinMessage = viewModel.pin::pinMessage,
+                    onSaveToCollection = viewModel.pin::saveMessage,
+                    onSelectMessage = { msg -> viewModel.toggleMessageSelection(msg.id) },
                     onToggleMultiSelect = viewModel::toggleMultiSelectMode,
                     onDeleteSelected = viewModel::deleteSelectedMessages,
                     onForwardSelected = viewModel::forwardSelectedMessages,
-                    onCancelMultiSelect = { viewModel.toggleMultiSelectMode() },
+                    onCancelMultiSelect = viewModel::toggleMultiSelectMode,
                     onSelectAll = viewModel::selectAllMessages,
-                    onUnpinCurrent = viewModel::unpinCurrentChat,
+                    onUnpinCurrent = viewModel.pin::unpinCurrentChat,
                     onAddReaction = viewModel::addReaction,
                     onShowReactionPicker = viewModel::showReactionPicker,
                     onDismissReactionPicker = viewModel::dismissReactionPicker,
-                    onShowCreateGroupDialog = viewModel::showCreateGroupDialog,
-                    onDismissCreateGroupDialog = viewModel::dismissCreateGroupDialog,
-                    onConfirmCreateGroup = viewModel::createGroup,
+                    onShowCreateGroupDialog = viewModel.group::showCreateGroupDialog,
+                    onDismissCreateGroupDialog = viewModel.group::dismissCreateGroupDialog,
+                    onCreateGroupNameChange = { text -> viewModel.onDraftChange(text) },
+                    onConfirmCreateGroup = { name -> viewModel.createGroup(name) },
                     onShowMentionPicker = viewModel::showMentionPicker,
                     onDismissMentionPicker = viewModel::dismissMentionPicker,
                     onSelectMention = viewModel::selectMention,
                     onStartVoiceRecording = viewModel::startVoiceRecording,
-                    onStopVoiceRecording = viewModel::stopVoiceRecording,
+                    onStopVoiceRecording = {},
                 )
             }
         }
     }
 
-    /** Get display name from content URI */
-    private fun getFileName(uri: android.net.Uri): String? {
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        return cursor?.use {
-            if (it.moveToFirst()) {
-                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex >= 0) it.getString(nameIndex) else null
-            } else null
+    private fun getName(uri: android.net.Uri): String? {
+        var name: String? = null
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (i >= 0) name = c.getString(i)
+            }
         }
-    }
-
-    private fun getFileSize(uri: android.net.Uri): Long {
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        return cursor?.use {
-            if (it.moveToFirst()) {
-                val sizeIndex = it.getColumnIndex(OpenableColumns.SIZE)
-                if (sizeIndex >= 0) it.getLong(sizeIndex) else 0L
-            } else 0L
-        } ?: 0L
-    }
-}
-
-class ChatViewModelFactory(
-    private val messageCache: MessageCache,
-    private val sessionCache: SessionCache,
-    private val appContext: android.content.Context,
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
-            return ChatViewModel(
-                repository = MessageRepository(),
-                messageCache = messageCache,
-                sessionCache = sessionCache,
-                appContext = appContext,
-            ) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
+        return name
     }
 }

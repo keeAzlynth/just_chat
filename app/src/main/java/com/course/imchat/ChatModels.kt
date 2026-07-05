@@ -1,5 +1,6 @@
 package com.course.imchat
 
+import kotlinx.serialization.Serializable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 
@@ -43,6 +44,7 @@ sealed interface AuthStatus {
 /**
  * 引用消息 - 不可变数据类
  */
+@Serializable
 @Immutable
 data class QuotedMessage(
     val id: String,
@@ -54,6 +56,7 @@ data class QuotedMessage(
  * 聊天消息 - 不可变数据类
  * @Immutable告诉Compose编译器这个类不会改变
  */
+@Serializable
 @Immutable
 data class ChatMessage(
     val id: String,
@@ -82,14 +85,17 @@ data class ChatMessage(
      * 使用Kotlin的字符串模板和when表达式
      */
     fun formattedTime(): String {
-        val date = java.util.Date(timestampSeconds * 1000)
-        return java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(date)
+        val instant = java.time.Instant.ofEpochSecond(timestampSeconds)
+        val dt = java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+        return String.format("%02d:%02d", dt.hour, dt.minute)
     }
-    
+
     fun formattedDate(): String {
-        val date = java.util.Date(timestampSeconds * 1000)
-        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(date)
+        val instant = java.time.Instant.ofEpochSecond(timestampSeconds)
+        val dt = java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+        return String.format("%d-%02d-%02d", dt.year, dt.monthValue, dt.dayOfMonth)
     }
+
     
     fun isRead(): Boolean = readBy.isNotEmpty()
     
@@ -107,6 +113,7 @@ data class ChatMessage(
 /**
  * 在线用户
  */
+@Serializable
 @Immutable
 data class OnlineUser(
     val userId: String,
@@ -117,6 +124,7 @@ data class OnlineUser(
 /**
  * 聊天群组
  */
+@Serializable
 @Immutable
 data class ChatGroup(
     val groupId: String,
@@ -130,6 +138,7 @@ data class ChatGroup(
 /**
  * 未读消息计数
  */
+@Serializable
 @Immutable
 data class UnreadCount(
     val chatId: String = "",
@@ -140,6 +149,7 @@ data class UnreadCount(
 /**
  * 消息转发目标
  */
+@Serializable
 @Immutable
 data class ForwardTarget(
     val userId: String = "",
@@ -152,6 +162,7 @@ data class ForwardTarget(
 /**
  * 置顶消息
  */
+@Serializable
 @Immutable
 data class PinnedMessage(
     val messageId: String,
@@ -164,6 +175,7 @@ data class PinnedMessage(
 /**
  * 收藏消息
  */
+@Serializable
 @Immutable
 data class SavedMessage(
     val messageId: String,
@@ -171,6 +183,13 @@ data class SavedMessage(
     val message: ChatMessage,
     val savedAt: Long = System.currentTimeMillis() / 1000,
     val tags: List<String> = emptyList(),
+)
+
+/** A poll's live vote tracking */
+@Immutable
+data class PollState(
+    val votes: Map<String, Set<String>> = emptyMap(),  // optionId -> set of userIds
+    val isClosed: Boolean = false,
 )
 
 /**
@@ -190,7 +209,7 @@ data class ChatUiState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.Idle,
     val draft: String = "",
     val typingUsers: Set<String> = emptySet(),
-    val onlineUsers: List<OnlineUser> = emptyList(),
+    val onlineUsers: Map<String, OnlineUser> = emptyMap(),  // O(1) by userId, heavy reads
     val errorMessage: String? = null,
     val showOnlineUsers: Boolean = false,
     val selectedPrivateUser: OnlineUser? = null,
@@ -241,6 +260,11 @@ data class ChatUiState(
     // Voice recording
     val isVoiceRecording: Boolean = false,
     val recordingSeconds: Float = 0f,
+    // Polls (key = messageId, value = optionId -> set of usernames)
+    val activePolls: Map<String, PollState> = emptyMap(),
+    val showCreatePollDialog: Boolean = false,
+    val pollTitle: String = "",
+    val pollOptions: String = "",
 ) {
     /**
      * 使用Kotlin的属性访问语法

@@ -45,7 +45,7 @@ class AuthDelegate(
                 authStatus = AuthStatus.NotAuthenticated,
                 joined = false,
                 myUserId = null,
-                onlineUsers = emptyList(),
+                onlineUsers = emptyMap(),
             )
         }
     }
