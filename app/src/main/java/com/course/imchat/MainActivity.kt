@@ -2,6 +2,7 @@ package com.course.imchat
 
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -9,9 +10,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.course.imchat.ui.ChatActions
 import com.course.imchat.ui.ChatApp
 import com.course.imchat.ui.theme.IMChatTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,6 +29,24 @@ class MainActivity : ComponentActivity() {
             val viewModel: ChatViewModel = viewModel()
             val state by viewModel.uiState.collectAsState()
 
+            // v2.2: Screenshot protection — user toggleable via settings
+            val secureFlag = WindowManager.LayoutParams.FLAG_SECURE
+            if (state.screenshotProtection) {
+                window.setFlags(secureFlag, secureFlag)
+            } else {
+                window.clearFlags(secureFlag)
+            }
+
+            // ── App lifecycle → ViewModel bridge ──────────────
+            val lifecycleObserver = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> viewModel.onAppForeground()
+                    Lifecycle.Event.ON_PAUSE -> viewModel.onAppBackground()
+                    else -> {}
+                }
+            }
+            lifecycle.addObserver(lifecycleObserver)
+
             val imagePicker = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
             ) { uri -> uri?.let { viewModel.sendImage(it, getName(it) ?: "image.jpg") } }
@@ -30,67 +55,20 @@ class MainActivity : ComponentActivity() {
                 contract = ActivityResultContracts.GetContent()
             ) { uri -> uri?.let { viewModel.sendFile(it, getName(it) ?: "file", 0) } }
 
+            val actions = remember(viewModel) {
+                ChatActions.from(viewModel).copy(
+                    attachment = ChatActions.from(viewModel).attachment.copy(
+                        onPickImage = { imagePicker.launch("image/*") },
+                        onPickFile = { filePicker.launch("*/*") },
+                    )
+                )
+            }
+
             IMChatTheme(darkTheme = state.isDarkMode) {
                 ChatApp(
                     state = state,
                     messages = viewModel.messages,
-                    onServerUrlChange = viewModel::onServerUrlChange,
-                    onUsernameChange = viewModel::onUsernameChange,
-                    onPasswordChange = viewModel::onPasswordChange,
-                    onNicknameChange = viewModel::onNicknameChange,
-                    onToggleAuthMode = viewModel::toggleAuthMode,
-                    onConnect = viewModel::connect,
-                    onLogin = viewModel::login,
-                    onRegister = viewModel::register,
-                    onLogout = viewModel::logout,
-                    onDraftChange = viewModel::onDraftChange,
-                    onSend = viewModel::sendMessage,
-                    onReconnect = viewModel::reconnect,
-                    onDismissError = viewModel::dismissError,
-                    onToggleOnlineUsers = viewModel::toggleOnlineUsers,
-                    onSelectPrivateUser = viewModel::selectPrivateUser,
-                    onAttachFile = viewModel::toggleAttachmentSheet,
-                    onPickImage = { imagePicker.launch("image/*") },
-                    onTakePhoto = {},
-                    onPickFile = { filePicker.launch("*/*") },
-                    onToggleSearch = viewModel::toggleSearch,
-                    onSearchQueryChange = viewModel::onSearchQueryChange,
-                    onRecallMessage = viewModel::recallMessage,
-                    onToggleDarkMode = viewModel::toggleDarkMode,
-                    onToggleGroupManagement = viewModel.group::toggleGroupManagement,
-                    onCreateGroup = viewModel::createGroup,
-                    onSelectGroup = viewModel::selectGroup,
-                    onJoinGroup = viewModel::joinGroup,
-                    onLeaveGroup = viewModel::leaveGroup,
-                    onJoin = viewModel::join,
-                    onQuoteMessage = { viewModel.quoteMessage(it) },
-                    onCancelQuote = { viewModel.cancelQuote() },
-                    onDeleteMessage = viewModel::deleteMessage,
-                    onEditMessage = { viewModel.startEditMessage(it) },
-                    onCancelEditMessage = { viewModel.cancelEditMessage() },
-                    onSaveEditMessage = { viewModel.saveEditMessage() },
-                    onForwardMessage = { viewModel.startForwardMessage(it) },
-                    onPinMessage = viewModel.pin::pinMessage,
-                    onSaveToCollection = viewModel.pin::saveMessage,
-                    onSelectMessage = { msg -> viewModel.toggleMessageSelection(msg.id) },
-                    onToggleMultiSelect = viewModel::toggleMultiSelectMode,
-                    onDeleteSelected = viewModel::deleteSelectedMessages,
-                    onForwardSelected = viewModel::forwardSelectedMessages,
-                    onCancelMultiSelect = viewModel::toggleMultiSelectMode,
-                    onSelectAll = viewModel::selectAllMessages,
-                    onUnpinCurrent = viewModel.pin::unpinCurrentChat,
-                    onAddReaction = viewModel::addReaction,
-                    onShowReactionPicker = viewModel::showReactionPicker,
-                    onDismissReactionPicker = viewModel::dismissReactionPicker,
-                    onShowCreateGroupDialog = viewModel.group::showCreateGroupDialog,
-                    onDismissCreateGroupDialog = viewModel.group::dismissCreateGroupDialog,
-                    onCreateGroupNameChange = { text -> viewModel.onDraftChange(text) },
-                    onConfirmCreateGroup = { name -> viewModel.createGroup(name) },
-                    onShowMentionPicker = viewModel::showMentionPicker,
-                    onDismissMentionPicker = viewModel::dismissMentionPicker,
-                    onSelectMention = viewModel::selectMention,
-                    onStartVoiceRecording = viewModel::startVoiceRecording,
-                    onStopVoiceRecording = {},
+                    actions = actions,
                 )
             }
         }

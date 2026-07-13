@@ -53,7 +53,7 @@ object AppCache {
     @Synchronized
     fun getCachedMessages(chatId: String): List<ChatMessage>? {
         val cache = messageCaches[chatId] ?: return null
-        return cache.values().toList()
+        return cache.values().sortedBy { it.timestampSeconds }
     }
 
     @Synchronized

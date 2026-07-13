@@ -1,4 +1,4 @@
-package com.course.imchat.core.delegate
+package com.course.imchat.feature.saved
 
 import com.course.imchat.ChatMessage
 import com.course.imchat.ChatUiState
@@ -10,55 +10,56 @@ import kotlinx.coroutines.flow.update
 
 /**
  * Handles pinned messages and saved messages (bookmarks).
+ * v2.1: Moved to feature/saved module.
  */
 class PinDelegate(
     private val state: MutableStateFlow<ChatUiState>,
     private val repository: MessageRepository,
 ) {
     fun pinMessage(msg: ChatMessage) {
-        val chatId = state.value.currentChatId
+        val chatId = state.value.chat.currentChatId
         val pinned = PinnedMessage(
             messageId = msg.id,
             chatId = chatId,
             message = msg,
-            pinnedBy = state.value.myUserId ?: "",
+            pinnedBy = state.value.auth.myUserId ?: "",
             pinnedAt = System.currentTimeMillis() / 1000,
         )
         state.update {
-            it.copy(pinnedMessages = it.pinnedMessages + (chatId to pinned))
+            it.copy(chat = it.chat.copy(pinnedMessages = it.chat.pinnedMessages + (chatId to pinned)))
         }
         repository.pinMessage(msg.id, chatId)
     }
 
     fun unpinMessage(chatId: String) {
-        val current = state.value.pinnedMessages[chatId]
+        val current = state.value.chat.pinnedMessages[chatId]
         if (current != null) {
             repository.unpinMessage(current.messageId, chatId)
-            state.update { it.copy(pinnedMessages = it.pinnedMessages - chatId) }
+            state.update { it.copy(chat = it.chat.copy(pinnedMessages = it.chat.pinnedMessages - chatId)) }
         }
     }
 
     fun unpinCurrentChat() {
-        unpinMessage(state.value.currentChatId)
+        unpinMessage(state.value.chat.currentChatId)
     }
 
     fun saveMessage(msg: ChatMessage) {
         val saved = SavedMessage(
             messageId = msg.id,
-            chatId = state.value.currentChatId,
+            chatId = state.value.chat.currentChatId,
             message = msg,
             savedAt = System.currentTimeMillis() / 1000,
         )
-        state.update { it.copy(savedMessages = it.savedMessages + saved) }
-        repository.saveMessageToCollection(msg.id, state.value.currentChatId)
+        state.update { it.copy(nav = it.nav.copy(savedMessages = it.nav.savedMessages + saved)) }
+        repository.saveMessageToCollection(msg.id, state.value.chat.currentChatId)
     }
 
     fun unsaveMessage(msg: ChatMessage) {
-        state.update { it.copy(savedMessages = it.savedMessages.filter { sm -> sm.messageId != msg.id }) }
+        state.update { it.copy(nav = it.nav.copy(savedMessages = it.nav.savedMessages.filter { sm -> sm.messageId != msg.id })) }
         repository.unsaveMessageFromCollection(msg.id)
     }
 
     fun toggleSavedMessages() {
-        state.update { it.copy(showSavedMessages = !it.showSavedMessages) }
+        state.update { it.copy(ui = it.ui.copy(showSavedMessages = !it.ui.showSavedMessages)) }
     }
 }

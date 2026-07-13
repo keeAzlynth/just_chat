@@ -10,6 +10,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -59,16 +62,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.course.imchat.ChatMessage
 import com.course.imchat.MessageType
 import com.course.imchat.QuotedMessage
 import com.course.imchat.ui.AccentPurple
+import com.course.imchat.ui.AccentGreen
+import com.course.imchat.ui.AccentOrange
 import com.course.imchat.ui.PrimaryBlue
 import com.course.imchat.ui.PrimaryBlueDark
+import com.course.imchat.ui.PrimaryBlueLight
 import com.course.imchat.ui.PrimaryGradient
 import com.course.imchat.ui.ReceivedBubbleDark
 import com.course.imchat.ui.ReceivedBubbleLight
-import com.course.imchat.ui.SuccessGreen
+import com.course.imchat.ui.SentBubbleDark
+import com.course.imchat.ui.SentBubbleLight
+import com.course.imchat.ui.SentBorderDark
+import com.course.imchat.ui.SentBorderLight
+import com.course.imchat.ui.ReceivedBorderDark
+import com.course.imchat.ui.ReceivedBorderLight
 import com.course.imchat.ui.TgAvatar
 import com.course.imchat.ui.avatarColor
 import kotlin.math.roundToInt
@@ -121,35 +135,34 @@ fun MessageBubble(
     
     val bubbleBrush = remember(isMine, isDarkTheme, isSelected) {
         if (isSelected) {
-            Brush.linearGradient(listOf(PrimaryBlue.copy(alpha = 0.15f), PrimaryBlue.copy(alpha = 0.10f)))
+            Brush.linearGradient(listOf(PrimaryBlue.copy(alpha = 0.2f), PrimaryBlue.copy(alpha = 0.12f)))
         } else if (isMine) {
-            // Sent: Telegram green tint (light) / dark blue (dark)
-            if (isDarkTheme) Brush.linearGradient(listOf(Color(0xFF2B5278), Color(0xFF2B5278)))
-            else Brush.linearGradient(listOf(Color(0xFFEEFFDE), Color(0xFFEEFFDE)))
+            // Sent: mint gradient (light) / forest gradient (dark)
+            if (isDarkTheme) Brush.verticalGradient(listOf(SentBubbleDark, Color(0xFF1A4230)))
+            else Brush.verticalGradient(listOf(SentBubbleLight, Color(0xFFE0F2E0)))
         } else {
-            // Received: white (light) / dark surface (dark)
-            if (isDarkTheme) Brush.linearGradient(listOf(Color(0xFF182533), Color(0xFF182533)))
-            else Brush.linearGradient(listOf(Color.White, Color.White))
+            // Received: warm white (light) / deep navy (dark)
+            if (isDarkTheme) Brush.verticalGradient(listOf(ReceivedBubbleDark, Color(0xFF17202A)))
+            else Brush.verticalGradient(listOf(ReceivedBubbleLight, Color(0xFFEEF0F4)))
         }
     }
 
-    // Bubble border — Telegram uses 1px subtle border to separate from bg
-    val bubbleBorderColor = if (isSelected) PrimaryBlue.copy(alpha = 0.4f)
+    val bubbleBorderColor = if (isSelected) PrimaryBlue.copy(alpha = 0.5f)
         else if (isMine) {
-            if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFD4E9C7)  // green border
+            if (isDarkTheme) SentBorderDark else SentBorderLight
         } else {
-            if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFE5E7EB)   // gray border
+            if (isDarkTheme) ReceivedBorderDark else ReceivedBorderLight
         }
 
     // Text colors — guaranteed high contrast
     val bubbleTextColor = if (isMine) {
-        if (isDarkTheme) Color.White else Color(0xFF000000)
+        if (isDarkTheme) Color(0xFFE8F5E9) else Color(0xFF1B3A1B)
     } else {
-        if (isDarkTheme) Color(0xFFF5F5F5) else Color(0xFF000000)
+        if (isDarkTheme) Color(0xFFE8ECF0) else Color(0xFF1A1D23)
     }
 
     val bubbleTimeColor = if (isMine) {
-        if (isDarkTheme) Color.White.copy(alpha = 0.5f) else Color(0xFF8CA68A)
+        if (isDarkTheme) Color.White.copy(alpha = 0.45f) else Color(0xFF6B8F6B)
     } else {
         if (isDarkTheme) Color(0xFF7B8794) else Color(0xFF8E8E93)
     }
@@ -254,22 +267,47 @@ fun MessageBubble(
                 .fillMaxWidth()
                 .padding(vertical = 3.dp)
                 .offset { IntOffset(x = animatedOffset.roundToInt(), y = 0) }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (swipeOffset > SWIPE_THRESHOLD) {
-                                onQuoteMessage(message)
+                .pointerInput(message.id) {
+                    // Only detect horizontal drag — let vertical scroll pass through to LazyColumn
+                    awaitEachGesture {
+                        val first = awaitFirstDown(requireUnconsumed = false)
+                        var startX = first.position.x
+                        var startY = first.position.y
+                        var totalX = 0f
+                        var totalY = 0f
+                        var isHorizontal = false
+                        var started = false
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            val dx = change.position.x - startX
+                            val dy = change.position.y - startY
+                            if (!started) {
+                                // Direction lock: only start horizontal drag if X movement > Y * 1.5
+                                if (kotlin.math.abs(dx) > 8f && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f) {
+                                    isHorizontal = true
+                                    started = true
+                                } else if (kotlin.math.abs(dy) > 12f) {
+                                    // User is scrolling vertically — bail out
+                                    break
+                                }
+                                startX = change.position.x
+                                startY = change.position.y
                             }
-                            swipeOffset = 0f
-                        },
-                        onDragCancel = {
-                            swipeOffset = 0f
-                        },
-                        onHorizontalDrag = { _, dragAmount ->
-                            val newOffset = (swipeOffset + dragAmount).coerceIn(0f, MAX_SWIPE_OFFSET)
-                            swipeOffset = newOffset
+                            if (isHorizontal && started) {
+                                totalX += change.position.x - startX
+                                startX = change.position.x
+                                val newOffset = (swipeOffset + change.position.x - startX + totalX).coerceIn(0f, MAX_SWIPE_OFFSET)
+                                swipeOffset = newOffset
+                                change.consume()
+                            }
+                        } while (event.changes.any { it.pressed })
+                        // On release
+                        if (isHorizontal && swipeOffset > SWIPE_THRESHOLD) {
+                            onQuoteMessage(message)
                         }
-                    )
+                        swipeOffset = 0f
+                    }
                 },
             horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         ) {
@@ -338,45 +376,30 @@ fun MessageBubble(
                         )
                     } else when (message.messageType) {
                         MessageType.Image -> {
-                            Column(
-                                modifier = Modifier
-                                    .padding(14.dp)
-                                    .widthIn(max = 220.dp),
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                if (isMine) Color.White.copy(alpha = 0.2f)
-                                                else PrimaryBlue.copy(alpha = 0.1f)
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            Icons.Default.OpenInFull,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
-                                            tint = if (isMine) Color.White else PrimaryBlue,
-                                        )
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "\uD83D\uDDBC\uFE0F ${message.fileName.ifEmpty { "图片" }}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = bubbleTextColor,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        Text(
-                                            text = "点击查看大图",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = bubbleSubColor,
-                                        )
-                                    }
-                                }
+                            // v2.3: Render actual image with Coil AsyncImage
+                            val imageModel = remember(message.fileUrl) {
+                                message.fileUrl.ifBlank { message.text }
                             }
+                            val ctx = LocalContext.current
+                            AsyncImage(
+                                model = ImageRequest.Builder(ctx)
+                                    .data(imageModel)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "图片消息",
+                                modifier = Modifier
+                                    .widthIn(max = 220.dp)
+                                    .heightIn(max = 280.dp)
+                                    .padding(2.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (!isMultiSelectMode) onViewImage(message)
+                                        },
+                                        onLongClick = { showContextMenu = true },
+                                    ),
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+                            )
                         }
                         MessageType.File -> {
                             Row(

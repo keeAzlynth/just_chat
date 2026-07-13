@@ -1,4 +1,4 @@
-package com.course.imchat.core.delegate
+package com.course.imchat.feature.chat
 
 import android.net.Uri
 import com.course.imchat.*
@@ -12,10 +12,7 @@ import java.util.UUID
  * sends via [MessageRepository], and returns the message for the caller to
  * insert into their state.
  *
- * Responsibilities:
- * — Construct [ChatMessage] objects with the correct fields
- * — Generate stable local message IDs
- * — Send the appropriate WebSocket message for each message type
+ * v2.1: Moved to feature/chat module.
  */
 class MessageComposer(
     private val repository: MessageRepository,

@@ -28,6 +28,8 @@ class WebSocketClient(
         socket = null
     }
 
+    fun isOpen(): Boolean = socket != null
+
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             events.tryEmit(IncomingEvent.Connected)
