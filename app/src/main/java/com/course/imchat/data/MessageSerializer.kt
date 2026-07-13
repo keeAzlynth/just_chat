@@ -188,6 +188,7 @@ class MessageSerializer {
                 nickname = json.string("nickname"),
             )
             "message" -> IncomingEvent.Message(
+                messageId = json.long("messageId"),
                 userId = json.string("userId"),
                 nickname = json.string("nickname"),
                 text = json.string("text"),
@@ -198,6 +199,7 @@ class MessageSerializer {
                 fileSize = json.long("fileSize"),
             )
             "private_message" -> IncomingEvent.PrivateMessage(
+                messageId = json.long("messageId"),
                 userId = json.string("userId"),
                 nickname = json.string("nickname"),
                 receiverId = json.string("receiverId"),
@@ -294,6 +296,7 @@ class MessageSerializer {
                 ownerId = json.string("ownerId"),
             )
             "group_message" -> IncomingEvent.GroupMessage(
+                messageId = json.long("messageId"),
                 groupId = json.string("groupId"),
                 userId = json.string("userId"),
                 nickname = json.string("nickname"),

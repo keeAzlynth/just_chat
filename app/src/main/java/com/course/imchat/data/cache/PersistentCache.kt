@@ -8,10 +8,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * Persistent message cache — SharedPreferences + kotlinx.serialization.
- * Each chat stores up to 50 recent messages on disk.
+ * Persistent message cache backed by SharedPreferences.
  *
- * Migration path: SharedPreferences → DataStore (already has dependency, just swap impl later).
+ * Thread-safe initialization via [ensureInit]. Once initialised, all reads/writes
+ * are safe without the `::prefs.isInitialized` guard.
+ *
+ * Each chat stores up to [MAX_MSGS_PER_CHAT] recent messages.
+ *
+ * TODO: swap SharedPreferences → DataStore for large workloads.
  */
 object PersistentCache {
 
@@ -21,70 +25,79 @@ object PersistentCache {
     private const val MSG_PREFIX = "msgs_"
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-    private lateinit var prefs: SharedPreferences
 
-    fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    @Volatile
+    private var prefs: SharedPreferences? = null
+    private val lock = Any()
+
+    /**
+     * Idempotent initializer — safe to call from multiple threads.
+     * Must be called once, typically in ChatViewModel.init {}.
+     */
+    fun ensureInit(context: Context) {
+        if (prefs != null) return
+        synchronized(lock) {
+            if (prefs != null) return
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
     }
 
-    // ── Messages ───────────────────────────────────────────
+    private fun pref(): SharedPreferences = prefs
+        ?: throw IllegalStateException("PersistentCache not initialized — call ensureInit(context) first")
+
+    // ── Messages ─────────────────────────────────────────────
 
     @Synchronized
     fun saveMessages(chatId: String, messages: List<ChatMessage>) {
-        if (!::prefs.isInitialized) return
         try {
-            prefs.edit().putString(MSG_PREFIX + chatId, json.encodeToString(messages.takeLast(MAX_MSGS_PER_CHAT))).apply()
+            pref().edit()
+                .putString(MSG_PREFIX + chatId, json.encodeToString(messages.takeLast(MAX_MSGS_PER_CHAT)))
+                .apply()
         } catch (_: Exception) {}
     }
 
     @Synchronized
     fun loadMessages(chatId: String): List<ChatMessage>? {
-        if (!::prefs.isInitialized) return null
         return try {
-            val str = prefs.getString(MSG_PREFIX + chatId, null) ?: return null
+            val str = pref().getString(MSG_PREFIX + chatId, null) ?: return null
             json.decodeFromString<List<ChatMessage>>(str)
         } catch (_: Exception) { null }
     }
 
-    // ── Drafts ─────────────────────────────────────────────
+    // ── Drafts ───────────────────────────────────────────────
 
     @Synchronized
     fun saveDraft(chatId: String, text: String) {
-        if (!::prefs.isInitialized) return
-        try { prefs.edit().putString(DRAFT_PREFIX + chatId, text).apply() } catch (_: Exception) {}
+        try { pref().edit().putString(DRAFT_PREFIX + chatId, text).apply() } catch (_: Exception) {}
     }
 
     @Synchronized
     fun loadDraft(chatId: String): String? {
-        if (!::prefs.isInitialized) return null
-        return try { prefs.getString(DRAFT_PREFIX + chatId, null) } catch (_: Exception) { null }
+        return try { pref().getString(DRAFT_PREFIX + chatId, null) } catch (_: Exception) { null }
     }
 
-    // ── Management ─────────────────────────────────────────
+    // ── Cache metadata ───────────────────────────────────────
 
     fun getCacheSize(): Long {
-        if (!::prefs.isInitialized) return 0
         var size = 0L
         try {
-            for (key in prefs.all.keys) {
+            for (key in pref().all.keys) {
                 if (key.startsWith(MSG_PREFIX) || key.startsWith(DRAFT_PREFIX))
-                    size += (prefs.getString(key, "")?.length?.toLong() ?: 0L)
+                    size += (pref().getString(key, "")?.length?.toLong() ?: 0L)
             }
         } catch (_: Exception) {}
         return size
     }
 
     fun getCachedChatCount(): Int {
-        if (!::prefs.isInitialized) return 0
-        return prefs.all.keys.count { it.startsWith(MSG_PREFIX) }
+        return pref().all.keys.count { it.startsWith(MSG_PREFIX) }
     }
 
     @Synchronized
     fun clearAll() {
-        if (!::prefs.isInitialized) return
         try {
-            val editor = prefs.edit()
-            for (key in prefs.all.keys) {
+            val editor = pref().edit()
+            for (key in pref().all.keys) {
                 if (key.startsWith(MSG_PREFIX) || key.startsWith(DRAFT_PREFIX)) editor.remove(key)
             }
             editor.apply()

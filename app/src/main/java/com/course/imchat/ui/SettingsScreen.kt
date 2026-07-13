@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +48,7 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onClose: () -> Unit,
     onToggleDarkMode: () -> Unit,
+    onToggleScreenshotProtection: () -> Unit = {},
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     val cacheSizeBytes = remember { PersistentCache.getCacheSize() }
@@ -106,6 +108,93 @@ fun SettingsScreen(
             ) {
                 Text("深色模式", style = MaterialTheme.typography.bodyLarge)
                 Switch(checked = state.isDarkMode, onCheckedChange = { onToggleDarkMode() })
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // v2.2: Privacy settings
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("隐私设置", style = MaterialTheme.typography.labelLarge, color = PrimaryBlue)
+                Spacer(Modifier.height(12.dp))
+
+                // Screenshot protection toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("截图保护", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (state.screenshotProtection) "已启用 — 防止截图和录屏"
+                            else "已关闭 — 允许截图和录屏",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.screenshotProtection,
+                        onCheckedChange = { onToggleScreenshotProtection() },
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Read receipts toggle placeholder
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("已读回执", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "消息被阅读后通知发送方",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Online status visibility placeholder
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("在线状态", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "所有人可见 · 点击更改",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Blocked users entry
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("屏蔽列表", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "管理被屏蔽的用户",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        "›",
+                        fontSize = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
             }
         }
 

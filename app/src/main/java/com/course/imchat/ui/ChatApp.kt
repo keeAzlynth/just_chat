@@ -48,64 +48,67 @@ enum class Screen {
 fun ChatApp(
     state: ChatUiState,
     messages: List<ChatMessage>,
-    onServerUrlChange: (String) -> Unit,
-    onUsernameChange: (String) -> Unit,
-    onPasswordChange: (String) -> Unit,
-    onNicknameChange: (String) -> Unit,
-    onToggleAuthMode: () -> Unit,
-    onConnect: () -> Unit,
-    onLogin: () -> Unit,
-    onRegister: () -> Unit,
-    onLogout: () -> Unit,
-    onDraftChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onReconnect: () -> Unit,
-    onDismissError: () -> Unit,
-    onToggleOnlineUsers: () -> Unit,
-    onSelectPrivateUser: (OnlineUser?) -> Unit,
-    onAttachFile: () -> Unit,
-    onPickImage: () -> Unit,
-    onTakePhoto: () -> Unit,
-    onPickFile: () -> Unit,
-    onToggleSearch: () -> Unit,
-    onSearchQueryChange: (String) -> Unit,
-    onRecallMessage: (String) -> Unit,
-    onToggleDarkMode: () -> Unit,
-    onToggleGroupManagement: () -> Unit,
-    onCreateGroup: (String) -> Unit,
-    onSelectGroup: (ChatGroup?) -> Unit,
-    onJoinGroup: (String) -> Unit,
-    onLeaveGroup: (String) -> Unit,
-    onJoin: () -> Unit,
-    onQuoteMessage: (ChatMessage) -> Unit = {},
-    onCancelQuote: () -> Unit = {},
-    onDeleteMessage: (String) -> Unit = {},
-    onEditMessage: (ChatMessage) -> Unit = {},
-    onCancelEditMessage: () -> Unit = {},
-    onSaveEditMessage: () -> Unit = {},
-    onForwardMessage: (ChatMessage) -> Unit = {},
-    onPinMessage: (ChatMessage) -> Unit = {},
-    onSaveToCollection: (ChatMessage) -> Unit = {},
-    onSelectMessage: (ChatMessage) -> Unit = {},
-    onToggleMultiSelect: () -> Unit = {},
-    onDeleteSelected: () -> Unit = {},
-    onForwardSelected: () -> Unit = {},
-    onCancelMultiSelect: () -> Unit = {},
-    onSelectAll: () -> Unit = {},
-    onUnpinCurrent: () -> Unit = {},
-    onAddReaction: (String, String) -> Unit = { _, _ -> },
-    onShowReactionPicker: (String) -> Unit = {},
-    onDismissReactionPicker: () -> Unit = {},
-    onShowCreateGroupDialog: () -> Unit = {},
-    onDismissCreateGroupDialog: () -> Unit = {},
-    onCreateGroupNameChange: (String) -> Unit = {},
-    onConfirmCreateGroup: (String) -> Unit = {},
-    onShowMentionPicker: () -> Unit = {},
-    onDismissMentionPicker: () -> Unit = {},
-    onSelectMention: (OnlineUser) -> Unit = {},
-    onStartVoiceRecording: () -> Unit = {},
-    onStopVoiceRecording: (Boolean) -> Unit = {},
+    actions: ChatActions,
 ) {
+    // ── Destructure actions into local vals (body references unchanged) ──
+    val onServerUrlChange = actions.auth.onServerUrlChange
+    val onUsernameChange = actions.auth.onUsernameChange
+    val onPasswordChange = actions.auth.onPasswordChange
+    val onNicknameChange = actions.auth.onNicknameChange
+    val onToggleAuthMode = actions.auth.onToggleAuthMode
+    val onConnect = actions.auth.onConnect
+    val onLogin = actions.auth.onLogin
+    val onRegister = actions.auth.onRegister
+    val onLogout = actions.auth.onLogout
+    val onReconnect = actions.auth.onReconnect
+    val onDismissError = actions.auth.onDismissError
+    val onJoin = actions.auth.onJoin
+    val onDraftChange = actions.message.onDraftChange
+    val onSend = actions.message.onSend
+    val onToggleSearch = actions.message.onToggleSearch
+    val onSearchQueryChange = actions.message.onSearchQueryChange
+    val onRecallMessage = actions.message.onRecallMessage
+    val onQuoteMessage = actions.message.onQuoteMessage
+    val onCancelQuote = actions.message.onCancelQuote
+    val onDeleteMessage = actions.message.onDeleteMessage
+    val onEditMessage = actions.message.onEditMessage
+    val onCancelEditMessage = actions.message.onCancelEditMessage
+    val onSaveEditMessage = actions.message.onSaveEditMessage
+    val onForwardMessage = actions.message.onForwardMessage
+    val onSelectMessage = actions.message.onSelectMessage
+    val onToggleMultiSelect = actions.message.onToggleMultiSelect
+    val onDeleteSelected = actions.message.onDeleteSelected
+    val onForwardSelected = actions.message.onForwardSelected
+    val onCancelMultiSelect = actions.message.onCancelMultiSelect
+    val onSelectAll = actions.message.onSelectAll
+    val onAddReaction = actions.message.onAddReaction
+    val onShowReactionPicker = actions.message.onShowReactionPicker
+    val onDismissReactionPicker = actions.message.onDismissReactionPicker
+    val onPinMessage = actions.pin.onPinMessage
+    val onSaveToCollection = actions.pin.onSaveToCollection
+    val onUnpinCurrent = actions.pin.onUnpinCurrent
+    val onToggleOnlineUsers = actions.group.onToggleOnlineUsers
+    val onSelectPrivateUser = actions.group.onSelectPrivateUser
+    val onSelectGroup = actions.group.onSelectGroup
+    val onCreateGroup = actions.group.onCreateGroup
+    val onJoinGroup = actions.group.onJoinGroup
+    val onLeaveGroup = actions.group.onLeaveGroup
+    val onToggleGroupManagement = actions.group.onToggleGroupManagement
+    val onShowCreateGroupDialog = actions.group.onShowCreateGroupDialog
+    val onDismissCreateGroupDialog = actions.group.onDismissCreateGroupDialog
+    val onConfirmCreateGroup = actions.group.onConfirmCreateGroup
+    val onAttachFile = actions.attachment.onAttachFile
+    val onPickImage = actions.attachment.onPickImage
+    val onTakePhoto = actions.attachment.onTakePhoto
+    val onPickFile = actions.attachment.onPickFile
+    val onShowMentionPicker = actions.input.onShowMentionPicker
+    val onDismissMentionPicker = actions.input.onDismissMentionPicker
+    val onSelectMention = actions.input.onSelectMention
+    val onStartVoiceRecording = actions.input.onStartVoiceRecording
+    val onStopVoiceRecording = actions.input.onStopVoiceRecording
+    val onToggleDarkMode = actions.nav.onToggleDarkMode
+    val onToggleScreenshotProtection = actions.nav.onToggleScreenshotProtection
+
     var currentScreen by remember { mutableStateOf(Screen.Home) }
     var selectedUser by remember { mutableStateOf<OnlineUser?>(null) }
     var showSavedMessages by remember { mutableStateOf(false) }
@@ -212,66 +215,12 @@ fun ChatApp(
                             )
                         }
                         Screen.Chat -> {
-                            // Build ChatActions from available callbacks
-                            val chatActions = remember(
-                                onDraftChange, onSend, onReconnect, onLogout,
-                                onToggleOnlineUsers, onSelectPrivateUser, onAttachFile,
-                                onPickImage, onTakePhoto, onPickFile, onToggleSearch,
-                                onSearchQueryChange, onRecallMessage, onSelectGroup,
-                                onCreateGroup, onQuoteMessage, onCancelQuote,
-                                onDeleteMessage, onEditMessage, onCancelEditMessage,
-                                onSaveEditMessage, onForwardMessage, onPinMessage,
-                                onSaveToCollection, onSelectMessage, onToggleMultiSelect,
-                                onDeleteSelected, onForwardSelected, onCancelMultiSelect,
-                                onSelectAll, onUnpinCurrent, onAddReaction,
-                                onShowReactionPicker, onDismissReactionPicker,
-                                onShowMentionPicker, onDismissMentionPicker, onSelectMention,
-                                onStartVoiceRecording, onStopVoiceRecording,
-                            ) {
-                                ChatActions(
-                                    onDraftChange = onDraftChange,
-                                    onSend = onSend,
-                                    onReconnect = onReconnect,
-                                    onLogout = onLogout,
-                                    onToggleOnlineUsers = onToggleOnlineUsers,
-                                    onSelectPrivateUser = onSelectPrivateUser,
-                                    onAttachFile = onAttachFile,
-                                    onPickImage = onPickImage,
-                                    onTakePhoto = onTakePhoto,
-                                    onPickFile = onPickFile,
-                                    onToggleSearch = onToggleSearch,
-                                    onSearchQueryChange = onSearchQueryChange,
-                                    onRecallMessage = onRecallMessage,
+                            val chatActions = actions.copy(
+                                nav = actions.nav.copy(
                                     onOpenSettings = { currentScreen = Screen.Settings },
                                     onBack = { currentScreen = Screen.Home },
-                                    onSelectGroup = onSelectGroup,
-                                    onCreateGroup = onCreateGroup,
-                                    onQuoteMessage = onQuoteMessage,
-                                    onCancelQuote = onCancelQuote,
-                                    onDeleteMessage = onDeleteMessage,
-                                    onEditMessage = onEditMessage,
-                                    onCancelEditMessage = onCancelEditMessage,
-                                    onSaveEditMessage = onSaveEditMessage,
-                                    onForwardMessage = onForwardMessage,
-                                    onPinMessage = onPinMessage,
-                                    onSaveToCollection = onSaveToCollection,
-                                    onSelectMessage = onSelectMessage,
-                                    onToggleMultiSelect = onToggleMultiSelect,
-                                    onDeleteSelected = onDeleteSelected,
-                                    onForwardSelected = onForwardSelected,
-                                    onCancelMultiSelect = onCancelMultiSelect,
-                                    onSelectAll = onSelectAll,
-                                    onUnpinCurrent = onUnpinCurrent,
-                                    onAddReaction = onAddReaction,
-                                    onShowReactionPicker = onShowReactionPicker,
-                                    onDismissReactionPicker = onDismissReactionPicker,
-                                    onShowMentionPicker = onShowMentionPicker,
-                                    onDismissMentionPicker = onDismissMentionPicker,
-                                    onSelectMention = onSelectMention,
-                                    onStartVoiceRecording = onStartVoiceRecording,
-                                    onStopVoiceRecording = onStopVoiceRecording,
                                 )
-                            }
+                            )
                             ChatScreen(
                                 state = state,
                                 messages = messages,
@@ -303,6 +252,7 @@ fun ChatApp(
                                 onLogout = onLogout,
                                 onClose = { currentScreen = Screen.Home },
                                 onToggleDarkMode = onToggleDarkMode,
+                                onToggleScreenshotProtection = onToggleScreenshotProtection,
                             )
                         }
                     }

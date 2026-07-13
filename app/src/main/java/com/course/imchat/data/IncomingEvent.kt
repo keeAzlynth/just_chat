@@ -9,6 +9,7 @@ sealed interface IncomingEvent {
     data class LoggedIn(val userId: String, val username: String, val nickname: String, val sessionToken: String = "") : IncomingEvent
     data class Joined(val userId: String, val nickname: String) : IncomingEvent
     data class Message(
+        val messageId: Long = 0,
         val userId: String,
         val nickname: String,
         val text: String,
@@ -19,6 +20,7 @@ sealed interface IncomingEvent {
         val fileSize: Long = 0,
     ) : IncomingEvent
     data class PrivateMessage(
+        val messageId: Long = 0,
         val userId: String,
         val nickname: String,
         val receiverId: String,
@@ -37,6 +39,7 @@ sealed interface IncomingEvent {
     // 群组相关事件
     data class GroupCreated(val groupId: String, val name: String, val ownerId: String) : IncomingEvent
     data class GroupMessage(
+        val messageId: Long = 0,
         val groupId: String,
         val userId: String,
         val nickname: String,

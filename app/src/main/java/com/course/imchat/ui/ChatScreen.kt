@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -74,6 +74,49 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     actions: ChatActions,
 ) {
+    // Destructure for backward-compat with body references
+    val onSend = actions.message.onSend
+    val onDraftChange = actions.message.onDraftChange
+    val onReconnect = actions.auth.onReconnect
+    val onLogout = actions.auth.onLogout
+    val onToggleOnlineUsers = actions.group.onToggleOnlineUsers
+    val onSelectPrivateUser = actions.group.onSelectPrivateUser
+    val onAttachFile = actions.attachment.onAttachFile
+    val onPickImage = actions.attachment.onPickImage
+    val onTakePhoto = actions.attachment.onTakePhoto
+    val onPickFile = actions.attachment.onPickFile
+    val onToggleSearch = actions.message.onToggleSearch
+    val onSearchQueryChange = actions.message.onSearchQueryChange
+    val onRecallMessage = actions.message.onRecallMessage
+    val onSelectGroup = actions.group.onSelectGroup
+    val onCreateGroup = actions.group.onCreateGroup
+    val onQuoteMessage = actions.message.onQuoteMessage
+    val onCancelQuote = actions.message.onCancelQuote
+    val onDeleteMessage = actions.message.onDeleteMessage
+    val onEditMessage = actions.message.onEditMessage
+    val onCancelEditMessage = actions.message.onCancelEditMessage
+    val onSaveEditMessage = actions.message.onSaveEditMessage
+    val onForwardMessage = actions.message.onForwardMessage
+    val onPinMessage = actions.pin.onPinMessage
+    val onSaveToCollection = actions.pin.onSaveToCollection
+    val onSelectMessage = actions.message.onSelectMessage
+    val onToggleMultiSelect = actions.message.onToggleMultiSelect
+    val onDeleteSelected = actions.message.onDeleteSelected
+    val onForwardSelected = actions.message.onForwardSelected
+    val onCancelMultiSelect = actions.message.onCancelMultiSelect
+    val onSelectAll = actions.message.onSelectAll
+    val onUnpinCurrent = actions.pin.onUnpinCurrent
+    val onAddReaction = actions.message.onAddReaction
+    val onShowReactionPicker = actions.message.onShowReactionPicker
+    val onDismissReactionPicker = actions.message.onDismissReactionPicker
+    val onShowMentionPicker = actions.input.onShowMentionPicker
+    val onDismissMentionPicker = actions.input.onDismissMentionPicker
+    val onSelectMention = actions.input.onSelectMention
+    val onStartVoiceRecording = actions.input.onStartVoiceRecording
+    val onStopVoiceRecording = actions.input.onStopVoiceRecording
+    val onOpenSettings = actions.nav.onOpenSettings
+    val onBack = actions.nav.onBack
+
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -87,14 +130,14 @@ fun ChatScreen(
                 groups = state.groups,
                 selectedGroup = state.selectedGroup,
                 onSelectUser = { user ->
-                    actions.onSelectPrivateUser(user)
+                    onSelectPrivateUser(user)
                     scope.launch { drawerState.close() }
                 },
                 onSelectGroup = { group ->
-                    actions.onSelectGroup(group)
+                    onSelectGroup(group)
                     scope.launch { drawerState.close() }
                 },
-                onCreateGroup = actions.onCreateGroup,
+                onCreateGroup = onCreateGroup,
                 onClose = { scope.launch { drawerState.close() } },
             )
         },
@@ -104,7 +147,7 @@ fun ChatScreen(
             messages = messages,
             actions = actions,
             onToggleDrawer = {
-                actions.onToggleOnlineUsers()
+                onToggleOnlineUsers()
                 scope.launch { drawerState.open() }
             },
         )
@@ -119,9 +162,49 @@ private fun ChatContent(
     actions: ChatActions,
     onToggleDrawer: () -> Unit,
 ) {
+    // Destructure actions for this scope
+    val onSelectAll = actions.message.onSelectAll
+    val onDeleteSelected = actions.message.onDeleteSelected
+    val onForwardSelected = actions.message.onForwardSelected
+    val onCancelMultiSelect = actions.message.onCancelMultiSelect
+    val onReconnect = actions.auth.onReconnect
+    val onToggleSearch = actions.message.onToggleSearch
+    val onOpenSettings = actions.nav.onOpenSettings
+    val onBack = actions.nav.onBack
+    val onUnpinCurrent = actions.pin.onUnpinCurrent
+    val onSearchQueryChange = actions.message.onSearchQueryChange
+    val onRecallMessage = actions.message.onRecallMessage
+    val onQuoteMessage = actions.message.onQuoteMessage
+    val onDeleteMessage = actions.message.onDeleteMessage
+    val onEditMessage = actions.message.onEditMessage
+    val onForwardMessage = actions.message.onForwardMessage
+    val onPinMessage = actions.pin.onPinMessage
+    val onSaveToCollection = actions.pin.onSaveToCollection
+    val onSend = actions.message.onSend
+    val onDraftChange = actions.message.onDraftChange
+    val onLogout = actions.auth.onLogout
+    val onAttachFile = actions.attachment.onAttachFile
+    val onPickImage = actions.attachment.onPickImage
+    val onTakePhoto = actions.attachment.onTakePhoto
+    val onPickFile = actions.attachment.onPickFile
+    val onCancelQuote = actions.message.onCancelQuote
+    val onCancelEditMessage = actions.message.onCancelEditMessage
+    val onSaveEditMessage = actions.message.onSaveEditMessage
+    val onSelectMessage = actions.message.onSelectMessage
+    val onToggleMultiSelect = actions.message.onToggleMultiSelect
+    val onAddReaction = actions.message.onAddReaction
+    val onShowReactionPicker = actions.message.onShowReactionPicker
+    val onDismissReactionPicker = actions.message.onDismissReactionPicker
+    val onShowMentionPicker = actions.input.onShowMentionPicker
+    val onDismissMentionPicker = actions.input.onDismissMentionPicker
+    val onSelectMention = actions.input.onSelectMention
+    val onStartVoiceRecording = actions.input.onStartVoiceRecording
+    val onStopVoiceRecording = actions.input.onStopVoiceRecording
+
     val listState = rememberLazyListState()
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
+    var showMarkdownToolbar by remember { mutableStateOf(false) }
     var viewingImage by remember { mutableStateOf<ChatMessage?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -157,10 +240,10 @@ private fun ChatContent(
             if (state.isMultiSelectMode) {
                 MultiSelectToolbar(
                     selectedCount = state.selectedMessageCount,
-                    onSelectAll = actions.onSelectAll,
-                    onDelete = actions.onDeleteSelected,
-                    onForward = actions.onForwardSelected,
-                    onCancel = actions.onCancelMultiSelect,
+                    onSelectAll = onSelectAll,
+                    onDelete = onDeleteSelected,
+                    onForward = onForwardSelected,
+                    onCancel = onCancelMultiSelect,
                 )
             } else {
                 ChatTopBar(
@@ -171,11 +254,11 @@ private fun ChatContent(
                     selectedUserOnline = state.selectedUserOnline,
                     selectedUserLastSeen = state.selectedUserLastSeen,
                     onlineUserCount = state.onlineUsers.size,
-                    onReconnect = actions.onReconnect,
+                    onReconnect = onReconnect,
                     onToggleOnlineUsers = onToggleDrawer,
-                    onToggleSearch = actions.onToggleSearch,
-                    onOpenSettings = actions.onOpenSettings,
-                    onBack = actions.onBack,
+                    onToggleSearch = onToggleSearch,
+                    onOpenSettings = onOpenSettings,
+                    onBack = onBack,
                 )
             }
 
@@ -189,11 +272,11 @@ private fun ChatContent(
                         if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
                     }
                 },
-                onUnpin = actions.onUnpinCurrent,
+                onUnpin = onUnpinCurrent,
             )
 
             AnimatedVisibility(visible = state.isSearching) {
-                SearchBar(state.searchQuery, actions.onSearchQueryChange, actions.onToggleSearch, state.searchResults.size)
+                SearchBar(state.searchQuery, onSearchQueryChange, onToggleSearch, state.searchResults.size)
             }
 
             LazyColumn(
@@ -221,18 +304,18 @@ private fun ChatContent(
                             message = item.message,
                             isFirstInGroup = item.isFirstInGroup,
                             isLastInGroup = item.isLastInGroup,
-                            onRecallMessage = actions.onRecallMessage,
-                            onQuoteMessage = actions.onQuoteMessage,
-                            onDeleteMessage = actions.onDeleteMessage,
-                            onEditMessage = actions.onEditMessage,
-                            onForwardMessage = actions.onForwardMessage,
-                            onPinMessage = actions.onPinMessage,
-                            onSaveMessage = actions.onSaveToCollection,
-                            onSelectMessage = actions.onSelectMessage,
+                            onRecallMessage = onRecallMessage,
+                            onQuoteMessage = onQuoteMessage,
+                            onDeleteMessage = onDeleteMessage,
+                            onEditMessage = onEditMessage,
+                            onForwardMessage = onForwardMessage,
+                            onPinMessage = onPinMessage,
+                            onSaveMessage = onSaveToCollection,
+                            onSelectMessage = onSelectMessage,
                             isMultiSelectMode = state.isMultiSelectMode,
                             isSelected = item.message.id in state.selectedMessages,
-                            onAddReaction = { msg, emoji -> actions.onAddReaction(msg.id, emoji) },
-                            onShowReactionPicker = actions.onShowReactionPicker,
+                            onAddReaction = { msg, emoji -> onAddReaction(msg.id, emoji) },
+                            onShowReactionPicker = onShowReactionPicker,
                             onViewImage = { viewingImage = it },
                         )
                         is ChatListItem.DateSeparatorItem -> DateSeparator(item.date)
@@ -267,9 +350,10 @@ private fun ChatContent(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 90.dp),
         )
 
-        // Bottom bar with frosted glass
+        // Bottom bar — imePadding makes it slide up with keyboard smoothly
         Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .imePadding()
                 .frostedGlass(cornerRadius = 0.dp, backgroundAlpha = 0.72f),
         ) {
             AnimatedVisibility(visible = state.typingUsers.isNotEmpty()) {
@@ -283,7 +367,7 @@ private fun ChatContent(
                 EmojiPicker(
                     onEmojiSelected = { emoji ->
                         EmojiData.recordEmoji(emoji)
-                        actions.onDraftChange(state.draft + emoji)
+                        onDraftChange(state.draft + emoji)
                     },
                     onDismiss = { showEmojiPicker = false },
                 )
@@ -291,44 +375,47 @@ private fun ChatContent(
             SmartReplyBar(
                 suggestions = state.smartSuggestions,
                 visible = true,
-                onReplyClick = { text -> actions.onDraftChange(text) },
+                onReplyClick = { text -> onDraftChange(text) },
             )
             ReactionPicker(
                 visible = state.showReactionPicker,
                 onReaction = { emoji ->
-                    state.reactingToMessageId?.let { actions.onAddReaction(it, emoji) }
+                    state.reactingToMessageId?.let { onAddReaction(it, emoji) }
                 },
-                onDismiss = actions.onDismissReactionPicker,
+                onDismiss = onDismissReactionPicker,
             )
             InputBar(
                 draft = state.draft,
                 canSend = state.canSend,
                 showEmojiPicker = showEmojiPicker,
+                showMarkdownToolbar = showMarkdownToolbar,
                 quotingMessage = state.quotingMessage,
                 editingMessage = state.editingMessage,
-                onDraftChange = actions.onDraftChange,
-                onSend = actions.onSend,
+                onDraftChange = onDraftChange,
+                onSend = onSend,
                 onToggleEmoji = { showEmojiPicker = !showEmojiPicker },
-                onAttachFile = actions.onAttachFile,
-                onPickImage = actions.onPickImage,
+                onToggleMarkdownToolbar = { showMarkdownToolbar = !showMarkdownToolbar },
+                onInsertMarkdown = { text -> onDraftChange(state.draft + text) },
+                onAttachFile = onAttachFile,
+                onPickImage = onPickImage,
                 onPreview = { showPreview = true },
-                onCancelQuote = actions.onCancelQuote,
-                onCancelEdit = actions.onCancelEditMessage,
-                onMention = actions.onShowMentionPicker,
-                onStartVoice = actions.onStartVoiceRecording,
-                onStopVoice = actions.onStopVoiceRecording,
+                onCancelQuote = onCancelQuote,
+                onCancelEdit = onCancelEditMessage,
+                onMention = onShowMentionPicker,
+                onStartVoice = onStartVoiceRecording,
+                onStopVoice = onStopVoiceRecording,
                 isVoiceRecording = state.isVoiceRecording,
                 recordingSeconds = state.recordingSeconds,
-                onPaste = { text -> actions.onDraftChange(state.draft + text) },
+                onPaste = { text -> onDraftChange(state.draft + text) },
             )
             MentionPicker(
                 visible = state.showMentionPicker,
                 users = state.mentionCandidates,
                 onSelectUser = { user ->
-                    actions.onSelectMention(user)
-                    actions.onDismissMentionPicker()
+                    onSelectMention(user)
+                    onDismissMentionPicker()
                 },
-                onDismiss = actions.onDismissMentionPicker,
+                onDismiss = onDismissMentionPicker,
             )
         }
     }
@@ -343,10 +430,10 @@ private fun ChatContent(
 
     AttachmentSheet(
         visible = state.showAttachmentSheet,
-        onDismiss = actions.onAttachFile,
-        onPickImage = actions.onPickImage,
-        onTakePhoto = actions.onTakePhoto,
-        onPickFile = actions.onPickFile,
+        onDismiss = onAttachFile,
+        onPickImage = onPickImage,
+        onTakePhoto = onTakePhoto,
+        onPickFile = onPickFile,
     )
 
     MediaViewer(

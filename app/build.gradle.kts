@@ -18,11 +18,19 @@ android {
     }
 
     signingConfigs {
+        // Debug: use same keystore as Release so they can overwrite each other
+        getByName("debug") {
+            storeFile = rootProject.file("release.keystore")
+            storePassword = "imchat123"
+            keyAlias = "imchat_release"
+            keyPassword = "imchat123"
+        }
+        // Release: auto-sign — keystore at project root, credentials in gradle.properties
         create("release") {
-            storeFile = project.findProperty("RELEASE_STORE_FILE")?.let { file(it) }
-            storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as? String ?: ""
-            keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as? String ?: ""
-            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as? String ?: ""
+            storeFile = rootProject.file("release.keystore")
+            storePassword = findProperty("RELEASE_STORE_PASSWORD") as? String ?: ""
+            keyAlias = findProperty("RELEASE_KEY_ALIAS") as? String ?: ""
+            keyPassword = findProperty("RELEASE_KEY_PASSWORD") as? String ?: ""
         }
     }
 
@@ -36,12 +44,13 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "WS_URL", "\"wss://your-server.com\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("release")
         }
     }
 

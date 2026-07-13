@@ -3,16 +3,26 @@ package com.course.imchat.data
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class MessageRepository {
     private val eventSink = MutableSharedFlow<IncomingEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<IncomingEvent> = eventSink
 
     private val serializer = MessageSerializer()
-    private val client = OkHttpClient.Builder().build()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)  // no read timeout for streaming
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .pingInterval(25, TimeUnit.SECONDS)      // keepalive: sends ping every 25s
+        .retryOnConnectionFailure(true)
+        .build()
     private var webSocketClient: WebSocketClient? = null
+    @Volatile
+    private var isDisconnecting = false
 
     fun connect(url: String) {
+        isDisconnecting = false
         // Close any existing connection to avoid duplicate sockets
         webSocketClient?.close()
         webSocketClient = WebSocketClient(
@@ -75,7 +85,7 @@ class MessageRepository {
     }
 
     fun recallMessage(messageId: String): Boolean {
-        val id = messageId.removePrefix("local_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.recallMessage(id)) ?: false
     }
 
@@ -113,27 +123,23 @@ class MessageRepository {
 
     // Edit & Delete
     fun editMessage(messageId: String, newText: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.editMessage(id, newText)) ?: false
     }
 
     fun deleteMessage(messageId: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.deleteMessage(id)) ?: false
     }
 
     // Pin & Save
     fun pinMessage(messageId: String, chatId: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.pinMessage(id, chatId)) ?: false
     }
 
     fun unpinMessage(messageId: String, chatId: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.unpinMessage(id, chatId)) ?: false
     }
 
@@ -142,14 +148,12 @@ class MessageRepository {
     }
 
     fun saveMessageToCollection(messageId: String, chatId: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.saveMessage(id, chatId)) ?: false
     }
 
     fun unsaveMessageFromCollection(messageId: String): Boolean {
-        val id = messageId.removePrefix("local_").removePrefix("pm_").removePrefix("grp_")
-            .removePrefix("hist_").toLongOrNull() ?: return false
+        val id = messageId.toLongOrNull() ?: return false
         return webSocketClient?.send(serializer.unsaveMessage(id)) ?: false
     }
 
@@ -158,7 +162,10 @@ class MessageRepository {
     }
 
     fun disconnect() {
+        isDisconnecting = true
         webSocketClient?.close()
         webSocketClient = null
     }
+
+    fun isConnected(): Boolean = webSocketClient?.isOpen() ?: false
 }

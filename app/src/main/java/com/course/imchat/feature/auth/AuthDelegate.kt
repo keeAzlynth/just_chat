@@ -1,4 +1,4 @@
-package com.course.imchat.core.delegate
+package com.course.imchat.feature.auth
 
 import com.course.imchat.AuthStatus
 import com.course.imchat.ChatUiState
@@ -8,33 +8,34 @@ import kotlinx.coroutines.flow.update
 
 /**
  * Handles authentication: login, register, logout.
+ * v2.1: Moved to feature/auth module.
  */
 class AuthDelegate(
     private val state: MutableStateFlow<ChatUiState>,
     private val repository: MessageRepository,
 ) {
     fun toggleMode() {
-        state.update { it.copy(isLoginMode = !it.isLoginMode) }
+        state.update { it.copy(auth = it.auth.copy(isLoginMode = !it.auth.isLoginMode)) }
     }
 
     fun login() {
         val s = state.value
-        val username = s.username.trim()
-        val password = s.password.trim()
+        val username = s.auth.username.trim()
+        val password = s.auth.password.trim()
         if (username.isEmpty() || password.isEmpty()) return
 
-        state.update { it.copy(authStatus = AuthStatus.Authenticating, errorMessage = null) }
+        state.update { it.copy(auth = it.auth.copy(authStatus = AuthStatus.Authenticating, errorMessage = null)) }
         repository.login(username, password)
     }
 
     fun register() {
         val s = state.value
-        val username = s.username.trim()
-        val password = s.password.trim()
-        val nickname = s.nickname.trim()
+        val username = s.auth.username.trim()
+        val password = s.auth.password.trim()
+        val nickname = s.auth.nickname.trim()
         if (username.isEmpty() || password.isEmpty() || nickname.isEmpty()) return
 
-        state.update { it.copy(authStatus = AuthStatus.Authenticating, errorMessage = null) }
+        state.update { it.copy(auth = it.auth.copy(authStatus = AuthStatus.Authenticating, errorMessage = null)) }
         repository.register(username, password, nickname)
     }
 
@@ -42,46 +43,50 @@ class AuthDelegate(
         repository.logout()
         state.update {
             it.copy(
-                authStatus = AuthStatus.NotAuthenticated,
-                joined = false,
-                myUserId = null,
-                onlineUsers = emptyMap(),
+                auth = it.auth.copy(
+                    authStatus = AuthStatus.NotAuthenticated,
+                    myUserId = null,
+                ),
+                chat = it.chat.copy(
+                    joined = false,
+                    onlineUsers = emptyMap(),
+                ),
             )
         }
     }
 
     fun onLoggedIn(userId: String) {
         state.update {
-            it.copy(
+            it.copy(auth = it.auth.copy(
                 authStatus = AuthStatus.Authenticated,
                 myUserId = userId,
                 errorMessage = null,
-            )
+            ))
         }
     }
 
     fun onAuthError(message: String) {
         state.update {
-            it.copy(
+            it.copy(auth = it.auth.copy(
                 authStatus = AuthStatus.Error(message),
                 errorMessage = message,
-            )
+            ))
         }
     }
 
     fun onServerUrlChange(url: String) {
-        state.update { it.copy(serverUrl = url) }
+        state.update { it.copy(auth = it.auth.copy(serverUrl = url)) }
     }
 
     fun onUsernameChange(name: String) {
-        state.update { it.copy(username = name.take(20)) }
+        state.update { it.copy(auth = it.auth.copy(username = name.take(20))) }
     }
 
     fun onPasswordChange(pw: String) {
-        state.update { it.copy(password = pw.take(50)) }
+        state.update { it.copy(auth = it.auth.copy(password = pw.take(50))) }
     }
 
     fun onNicknameChange(name: String) {
-        state.update { it.copy(nickname = name.take(20)) }
+        state.update { it.copy(auth = it.auth.copy(nickname = name.take(20))) }
     }
 }
