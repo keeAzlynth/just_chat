@@ -17,7 +17,10 @@ import com.course.imchat.data.cache.AppCache
 import com.course.imchat.data.cache.ChatCacheKey
 import com.course.imchat.data.cache.MessageCache
 import com.course.imchat.data.cache.PersistentCache
+import com.course.imchat.data.MessageIndex
 import com.course.imchat.data.cache.SessionCache
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,14 +53,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** High-performance message list (Compose snapshot-backed) */
     val messages: SnapshotStateList<ChatMessage> = mutableStateListOf()
 
+    /**
+     * 输入框草稿单独成流。
+     * 它每秒可能变化十几次（每敲一个字），塞进 ChatUiState 会让整棵状态树换对象，
+     * 所有读 uiState 的 Composable 都要重组一遍。放到独立 StateFlow 后，
+     * 只有订阅它的 InputBar 会重组。
+     */
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft.asStateFlow()
+
+    /** 消息 id → 下标；编辑/撤回/回执按 id 定位时不再线性扫描 */
+    private val messageIndex = MessageIndex()
+
     // ── Repository (must precede delegates) ─────────────────
     private val repository = MessageRepository()
 
     // ── Delegates — each scoped to one domain ───────────────
     val connection = ConnectionDelegate(_uiState, repository, viewModelScope)
     val auth = AuthDelegate(_uiState, repository)
-    val message = MessageDelegate(_uiState, messages, repository, viewModelScope, appContext)
-    val group = GroupDelegate(_uiState, repository)
+    val message = MessageDelegate(
+        _uiState, messages, repository, viewModelScope, appContext,
+        index = messageIndex, messageCache = messageCache, draftFlow = _draft,
+    )
+    val group = GroupDelegate(_uiState, repository, messageCache)
     val pin = PinDelegate(_uiState, repository)
 
     // ── Startup ────────────────────────────────────────────
@@ -159,18 +177,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 is IncomingEvent.Typing -> message.handleTyping(event.userId, event.nickname)
 
                 is IncomingEvent.MessageRecalled -> {
-                    val idx = messages.indexOfFirst { it.id == event.messageId.toString() }
+                    val idx = messageIndex.indexOf(messages, event.messageId.toString())
                     if (idx >= 0) messages[idx] = messages[idx].copy(isRecalled = true)
                 }
                 is IncomingEvent.MessageRead -> {
-                    val idx = messages.indexOfFirst { it.id == event.messageId.toString() }
+                    val idx = messageIndex.indexOf(messages, event.messageId.toString())
                     if (idx >= 0) messages[idx] = messages[idx].copy(
                         readBy = messages[idx].readBy + event.userId,
                         deliveryStatus = DeliveryStatus.Read,
                     )
                 }
                 is IncomingEvent.MessageEdited -> {
-                    val idx = messages.indexOfFirst { it.id == event.messageId.toString() }
+                    val idx = messageIndex.indexOf(messages, event.messageId.toString())
                     if (idx >= 0) messages[idx] = messages[idx].copy(text = event.text)
                 }
                 is IncomingEvent.MessageDeleted -> {
@@ -288,7 +306,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun selectAllMessages() = message.selectAllMessages()
     fun toggleSearch() = message.toggleSearch()
     fun onSearchQueryChange(q: String) = message.onSearchQueryChange(q)
-    fun onDraftChange(text: String) { message.onDraftChange(text); saveDraftForCurrentChat(text) }
+    /**
+     * 草稿变更：立刻写进 draftFlow（InputBar 订阅），落盘做 500ms 防抖。
+     * 原来每敲一个字就 saveDraft 一次，等于每个字符一次 SharedPreferences 写盘。
+     */
+    fun onDraftChange(text: String) {
+        message.onDraftChange(text)
+        draftSaveJob?.cancel()
+        draftSaveJob = viewModelScope.launch {
+            delay(500)
+            saveDraftForCurrentChat(text)
+        }
+    }
+
+    private var draftSaveJob: Job? = null
     private fun saveDraftForCurrentChat(text: String) {
         PersistentCache.saveDraft(ChatCacheKey.forChat(
             _uiState.value.selectedGroup?.groupId, _uiState.value.selectedPrivateUser?.userId), text)
@@ -302,7 +333,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveCurrentMessagesToCache()
         group.selectGroup(grp)
         messages.clear()
-        _uiState.update { it.copy(chat = it.chat.copy(isLoadingMore = false, hasMoreMessages = true, draft = "")) }
+        _uiState.update { it.copy(chat = it.chat.copy(isLoadingMore = false, hasMoreMessages = true)) }
         if (grp != null) {
             restoreMessages(ChatCacheKey.groupChat(grp.groupId))
             repository.getGroupMessageHistory(grp.groupId, 50)
@@ -316,7 +347,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveCurrentMessagesToCache()
         group.selectPrivateUser(user)
         messages.clear()
-        _uiState.update { it.copy(chat = it.chat.copy(isLoadingMore = false, hasMoreMessages = true, draft = "")) }
+        _uiState.update { it.copy(chat = it.chat.copy(isLoadingMore = false, hasMoreMessages = true)) }
         if (user != null) {
             restoreMessages(ChatCacheKey.privateChat(user.userId))
             if (messages.isEmpty()) repository.getPrivateMessageHistory(user.userId, 50)
@@ -330,8 +361,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         PersistentCache.saveMessages(currentChatKey(), messages.takeLast(50))
     }
     private fun restoreMessages(key: String) {
-        val draft = PersistentCache.loadDraft(key)
-        if (!draft.isNullOrBlank()) _uiState.update { it.copy(chat = it.chat.copy(draft = draft)) }
+        val saved = PersistentCache.loadDraft(key)
+        if (!saved.isNullOrBlank()) _draft.value = saved
         val diskMsgs = PersistentCache.loadMessages(key)
         if (!diskMsgs.isNullOrEmpty()) { messages.addAll(diskMsgs); return }
         AppCache.getCachedMessages(key)?.let { messages.addAll(it) }
@@ -354,9 +385,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun dismissMentionPicker() { _uiState.update { it.copy(ui = it.ui.copy(showMentionPicker = false)) } }
     fun selectMention(user: OnlineUser) {
-        _uiState.update { it.copy(
-            chat = it.chat.copy(draft = it.chat.draft + "@${user.nickname} "),
-            ui = it.ui.copy(showMentionPicker = false)) }
+        _draft.update { it + "@${user.nickname} " }
+        _uiState.update { it.copy(ui = it.ui.copy(showMentionPicker = false)) }
     }
     fun showCreatePollDialog() = _uiState.update { it.copy(poll = it.poll.copy(showCreatePollDialog = true, pollTitle = "", pollOptions = "")) }
     fun dismissCreatePollDialog() = _uiState.update { it.copy(poll = it.poll.copy(showCreatePollDialog = false)) }
@@ -367,9 +397,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val title = s.poll.pollTitle.trim()
         val options = s.poll.pollOptions.split("\n").filter { it.isNotBlank() }
         if (title.isEmpty() || options.size < 2) return
-        _uiState.update { it.copy(
-            chat = it.chat.copy(draft = "\uD83D\uDCCA $title\n" + options.joinToString("\n")),
-            poll = it.poll.copy(showCreatePollDialog = false, pollTitle = "", pollOptions = "")) }
+
+        // 投票模板直接写进草稿（草稿现在独立于 UiState）
+        _draft.value = buildString {
+            append("📊 ").append(title).append('\n')
+            options.forEach { append("- ").append(it).append('\n') }
+        }
+        _uiState.update { it.copy(poll = it.poll.copy(showCreatePollDialog = false, pollTitle = "", pollOptions = "")) }
     }
     fun votePoll(messageId: String, optionId: String) {
         val myId = _uiState.value.myUserId ?: return

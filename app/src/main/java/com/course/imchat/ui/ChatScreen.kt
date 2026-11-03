@@ -63,6 +63,7 @@ import com.course.imchat.ui.components.drawer.OnlineUsersDrawer
 import com.course.imchat.ui.components.message.MarkdownPreviewSheet
 import com.course.imchat.ui.components.message.MediaViewer
 import com.course.imchat.ui.components.message.MessageBubble
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -73,6 +74,7 @@ fun ChatScreen(
     state: ChatUiState,
     messages: List<ChatMessage>,
     actions: ChatActions,
+    draftFlow: StateFlow<String>,
 ) {
     // 外层只用到这 4 个回调，其余全部由 ChatContent 通过 actions 直接取用。
     // 原先把 40 个回调在这里解构一遍再不用，纯粹是噪音。
@@ -110,6 +112,7 @@ fun ChatScreen(
             state = state,
             messages = messages,
             actions = actions,
+            draftFlow = draftFlow,
             onToggleDrawer = {
                 onToggleOnlineUsers()
                 scope.launch { drawerState.open() }
@@ -124,6 +127,7 @@ private fun ChatContent(
     state: ChatUiState,
     messages: List<ChatMessage>,
     actions: ChatActions,
+    draftFlow: StateFlow<String>,
     onToggleDrawer: () -> Unit,
 ) {
     // Destructure actions for this scope
@@ -168,6 +172,8 @@ private fun ChatContent(
     val listState = rememberLazyListState()
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
+    // 预览取的是打开那一刻的快照，不需要跟着每个字符重组
+    var previewText by remember { mutableStateOf("") }
     var showMarkdownToolbar by remember { mutableStateOf(false) }
     var viewingImage by remember { mutableStateOf<ChatMessage?>(null) }
     val scope = rememberCoroutineScope()
@@ -337,7 +343,7 @@ private fun ChatContent(
                 EmojiPicker(
                     onEmojiSelected = { emoji ->
                         EmojiData.recordEmoji(emoji)
-                        onDraftChange(state.draft + emoji)
+                        onDraftChange(draftFlow.value + emoji)
                     },
                     onDismiss = { showEmojiPicker = false },
                 )
@@ -355,8 +361,8 @@ private fun ChatContent(
                 onDismiss = onDismissReactionPicker,
             )
             InputBar(
-                draft = state.draft,
-                canSend = state.canSend,
+                draftFlow = draftFlow,
+                joined = state.joined,
                 showEmojiPicker = showEmojiPicker,
                 showMarkdownToolbar = showMarkdownToolbar,
                 quotingMessage = state.quotingMessage,
@@ -365,10 +371,10 @@ private fun ChatContent(
                 onSend = onSend,
                 onToggleEmoji = { showEmojiPicker = !showEmojiPicker },
                 onToggleMarkdownToolbar = { showMarkdownToolbar = !showMarkdownToolbar },
-                onInsertMarkdown = { text -> onDraftChange(state.draft + text) },
+                onInsertMarkdown = { text -> onDraftChange(draftFlow.value + text) },
                 onAttachFile = onAttachFile,
                 onPickImage = onPickImage,
-                onPreview = { showPreview = true },
+                onPreview = { previewText = draftFlow.value; showPreview = true },
                 onCancelQuote = onCancelQuote,
                 onCancelEdit = onCancelEditMessage,
                 onMention = onShowMentionPicker,
@@ -376,7 +382,7 @@ private fun ChatContent(
                 onStopVoice = onStopVoiceRecording,
                 isVoiceRecording = state.isVoiceRecording,
                 recordingSeconds = state.recordingSeconds,
-                onPaste = { text -> onDraftChange(state.draft + text) },
+                onPaste = { text -> onDraftChange(draftFlow.value + text) },
             )
             MentionPicker(
                 visible = state.showMentionPicker,
@@ -392,7 +398,7 @@ private fun ChatContent(
 
     if (showPreview) {
         MarkdownPreviewSheet(
-            text = state.draft,
+            text = previewText,
             onDismiss = { showPreview = false },
             onSwitchToEdit = { showPreview = false },
         )

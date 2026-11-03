@@ -367,86 +367,29 @@ fun MessageBubble(
                     }
                     
                     if (message.isRecalled) {
-                        Text(
-                            text = if (isMine) "你撤回了一条消息" else "${message.nickname} 撤回了一条消息",
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = bubbleTextColor.copy(alpha = 0.6f),
-                            fontStyle = FontStyle.Italic,
+                        RecalledContent(
+                            nickname = message.nickname,
+                            isMine = isMine,
+                            textColor = bubbleTextColor,
                         )
                     } else when (message.messageType) {
-                        MessageType.Image -> {
-                            // v2.3: Render actual image with Coil AsyncImage
-                            val imageModel = remember(message.fileUrl) {
-                                message.fileUrl.ifBlank { message.text }
-                            }
-                            val ctx = LocalContext.current
-                            AsyncImage(
-                                model = ImageRequest.Builder(ctx)
-                                    .data(imageModel)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "图片消息",
-                                modifier = Modifier
-                                    .widthIn(max = 220.dp)
-                                    .heightIn(max = 280.dp)
-                                    .padding(2.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (!isMultiSelectMode) onViewImage(message)
-                                        },
-                                        onLongClick = { showContextMenu = true },
-                                    ),
-                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                            )
-                        }
-                        MessageType.File -> {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Default.AttachFile, contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = bubbleTextColor)
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(message.fileName, style = MaterialTheme.typography.bodyMedium,
-                                        color = bubbleTextColor, fontWeight = FontWeight.Medium)
-                                    Text(message.formattedFileSize(), style = MaterialTheme.typography.bodySmall,
-                                        color = bubbleSubColor)
-                                }
-                            }
-                        }
-                        else -> {
-                            Column(modifier = Modifier.padding(0.dp)) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.Bottom,
-                                ) {
-                                    MessageText(
-                                        text = message.text,
-                                        color = bubbleTextColor,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = message.formattedTime(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 10.sp,
-                                        color = bubbleTimeColor,
-                                    )
-                                }
-                                // URL preview card
-                                val previewUrl = remember(message.text) { extractUrl(message.text) }
-                                if (previewUrl != null) {
-                                    LinkPreviewCard(
-                                        url = previewUrl,
-                                        isMine = isMine,
-                                    )
-                                }
-                            }
-                        }
+                        MessageType.Image -> ImageMessageContent(
+                            message = message,
+                            isMultiSelectMode = isMultiSelectMode,
+                            onViewImage = onViewImage,
+                            onLongPress = { showContextMenu = true },
+                        )
+                        MessageType.File -> FileMessageContent(
+                            message = message,
+                            textColor = bubbleTextColor,
+                            subColor = bubbleSubColor,
+                        )
+                        else -> TextMessageContent(
+                            message = message,
+                            textColor = bubbleTextColor,
+                            timeColor = bubbleTimeColor,
+                            isMine = isMine,
+                        )
                     }
                 }
 

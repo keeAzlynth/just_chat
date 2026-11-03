@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     messages = viewModel.messages,
                     actions = actions,
+                    draftFlow = viewModel.draft,
                 )
             }
         }

@@ -252,7 +252,6 @@ data class AuthState(
 @Stable
 data class ChatState(
     val joined: Boolean = false,
-    val draft: String = "",
     val typingUsers: Set<String> = emptySet(),
     val onlineUsers: Map<String, OnlineUser> = emptyMap(),  // O(1) by userId
     val selectedPrivateUser: OnlineUser? = null,
@@ -268,9 +267,6 @@ data class ChatState(
     val currentChatId: String = "public",
     val unreadBoundaryId: String? = null,
 ) {
-    val canSend: Boolean
-        get() = joined && draft.trim().isNotEmpty()
-
     val currentPinnedMessage: PinnedMessage?
         get() = pinnedMessages[currentChatId]
 }
@@ -371,7 +367,6 @@ data class ChatUiState(
 
     // ChatState
     val joined get() = chat.joined
-    val draft get() = chat.draft
     val typingUsers get() = chat.typingUsers
     val onlineUsers get() = chat.onlineUsers
     val selectedPrivateUser get() = chat.selectedPrivateUser
@@ -386,7 +381,6 @@ data class ChatUiState(
     val hasMoreMessages get() = chat.hasMoreMessages
     val currentChatId get() = chat.currentChatId
     val unreadBoundaryId get() = chat.unreadBoundaryId
-    val canSend get() = chat.canSend
     val currentPinnedMessage get() = chat.currentPinnedMessage
 
     // UiState

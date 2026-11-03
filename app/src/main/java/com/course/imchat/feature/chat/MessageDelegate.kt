@@ -10,8 +10,10 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.course.imchat.*
 import com.course.imchat.core.notification.NotificationHelper
 import com.course.imchat.data.MessageDeduplicator
+import com.course.imchat.data.MessageIndex
 import com.course.imchat.data.MessageRepository
 import com.course.imchat.data.SmartReplyProvider
+import com.course.imchat.data.cache.MessageCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,6 +31,9 @@ class MessageDelegate(
     private val repository: MessageRepository,
     private val scope: CoroutineScope,
     private val appContext: Context?,
+    private val index: MessageIndex = MessageIndex(),
+    private val messageCache: MessageCache? = null,
+    private val draftFlow: MutableStateFlow<String> = MutableStateFlow(""),
 ) {
     private val composer = MessageComposer(repository)
     private val dedup = MessageDeduplicator(500)
@@ -43,8 +48,8 @@ class MessageDelegate(
 
     // ── Send ───────────────────────────────────────────
     fun sendMessage() {
-        val text = state.value.chat.draft.trim()
-        if (text.isEmpty() || !state.value.canSend) return
+        val text = draftFlow.value.trim()
+        if (text.isEmpty() || !state.value.chat.joined) return
         val s = state.value
         if (s.chat.editingMessage != null) { saveEditMessage(s.chat.editingMessage.id, text); return }
 
@@ -56,7 +61,7 @@ class MessageDelegate(
         messages.add(result.localMessage)
         state.update {
             it.copy(
-                chat = it.chat.copy(draft = "", quotingMessage = null),
+                chat = it.chat.copy(quotingMessage = null),
                 ui = it.ui.copy(smartSuggestions = emptyList()),
             )
         }
@@ -94,13 +99,20 @@ class MessageDelegate(
     // ── Edit ──────────────────────────────────────────
     fun quoteMessage(msg: ChatMessage) = state.update { it.copy(chat = it.chat.copy(quotingMessage = msg)) }
     fun cancelQuote() = state.update { it.copy(chat = it.chat.copy(quotingMessage = null)) }
-    fun startEdit(msg: ChatMessage) = state.update { it.copy(chat = it.chat.copy(editingMessage = msg, draft = msg.text)) }
-    fun cancelEdit() = state.update { it.copy(chat = it.chat.copy(editingMessage = null, draft = "")) }
+    fun startEdit(msg: ChatMessage) {
+        draftFlow.value = msg.text
+        state.update { it.copy(chat = it.chat.copy(editingMessage = msg)) }
+    }
+    fun cancelEdit() {
+        draftFlow.value = ""
+        state.update { it.copy(chat = it.chat.copy(editingMessage = null)) }
+    }
     fun saveEditMessage(messageId: String, newText: String) {
         val clean = newText.trim(); if (clean.isEmpty()) return
-        val idx = messages.indexOfFirst { it.id == messageId }
+        val idx = index.indexOf(messages, messageId)
         if (idx >= 0) messages[idx] = messages[idx].copy(text = clean)
-        state.update { it.copy(chat = it.chat.copy(editingMessage = null, draft = "")) }
+        draftFlow.value = ""
+        state.update { it.copy(chat = it.chat.copy(editingMessage = null)) }
         repository.editMessage(messageId, clean)
     }
 
@@ -191,7 +203,7 @@ class MessageDelegate(
         val msgId = if (serverMessageId > 0) serverMessageId.toString() else "$userId|$timestamp"
         if (dedup.isDuplicate("$msgId|${text.take(40)}")) return
         messages.add(buildReceivedMessage(userId, nickname, text, timestamp, fileUrl, fileName, fileSize, msgId))
-        notifyIfNeeded("public", "\u516C\u5171\u804A\u5929", nickname, text)
+        onMessageArrived("public", "\u516C\u5171\u804A\u5929", nickname, text)
         computeSmartSuggestions()
     }
 
@@ -205,7 +217,7 @@ class MessageDelegate(
             timestampSeconds = timestamp, isMine = false, isPrivate = true,
             receiverId = myId ?: "",
         ))
-        notifyIfNeeded("private_$userId", nickname, nickname, text)
+        onMessageArrived("private_$userId", nickname, nickname, text)
         computeSmartSuggestions()
     }
 
@@ -218,7 +230,7 @@ class MessageDelegate(
             id = msgId, userId = userId, nickname = nickname, text = text,
             timestampSeconds = timestamp, isMine = false, groupId = groupId
         ))
-        notifyIfNeeded("group_$groupId", groupId, nickname, text)
+        onMessageArrived("group_$groupId", groupId, nickname, text)
         computeSmartSuggestions()
     }
 
@@ -233,13 +245,13 @@ class MessageDelegate(
         scheduleTypingCleanup()
     }
     fun onDraftChange(text: String) {
-        state.update { it.copy(chat = it.chat.copy(draft = text)) }
+        draftFlow.value = text
         if (text.isNotEmpty()) sendTyping()
     }
 
     // ── Reactions ─────────────────────────────────────
     fun addReaction(messageId: String, emoji: String) {
-        val idx = messages.indexOfFirst { it.id == messageId }
+        val idx = index.indexOf(messages, messageId)
         if (idx >= 0) {
             val m = messages[idx]
             val r = m.reactions.toMutableMap().apply { this[emoji] = (this[emoji] ?: 0) + 1 }
@@ -288,9 +300,18 @@ class MessageDelegate(
         typingCleanupJob?.cancel()
         typingCleanupJob = scope.launch { delay(3000); state.update { it.copy(chat = it.chat.copy(typingUsers = emptySet())) } }
     }
-    private fun notifyIfNeeded(chatId: String, chatTitle: String, sender: String, text: String) {
-        val ctx = appContext ?: return
+    /**
+     * 收到一条「不属于当前会话」的消息时的统一处理：计未读 + 发通知。
+     *
+     * 之前只发通知、从不累加未读，导致 HomeScreen 和顶部角标的 unreadCounts
+     * 永远是 0（功能等于没接上）。
+     */
+    private fun onMessageArrived(chatId: String, chatTitle: String, sender: String, text: String) {
         if (state.value.chat.currentChatId == chatId) return
+
+        messageCache?.incrementUnreadCount(chatId)
+
+        val ctx = appContext ?: return
         NotificationHelper.showMessageNotification(ctx, chatId, chatTitle, sender, text)
     }
 }

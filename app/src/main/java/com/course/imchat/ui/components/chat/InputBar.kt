@@ -40,8 +40,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,8 +83,8 @@ private val TextPrimaryDark  = Color(0xFFF5F5F5)
 
 @Composable
 fun InputBar(
-    draft: String,
-    canSend: Boolean,
+    draftFlow: StateFlow<String>,
+    joined: Boolean,
     showEmojiPicker: Boolean,
     showMarkdownToolbar: Boolean = false,
     quotingMessage: ChatMessage? = null,
@@ -103,6 +106,11 @@ fun InputBar(
     onPaste: (String) -> Unit = {},
     onInsertMarkdown: (String) -> Unit = {},
 ) {
+    // 草稿在独立 StateFlow 里，只在这一层订阅：
+    // 每敲一个字只重组 InputBar，不会惊动聊天列表和整个 UiState 树
+    val draft by draftFlow.collectAsState()
+    val canSend = joined && draft.isNotBlank()
+
     val isDark = isSystemInDarkTheme()
 
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current

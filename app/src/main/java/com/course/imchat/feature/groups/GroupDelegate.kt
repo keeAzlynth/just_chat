@@ -5,6 +5,7 @@ import com.course.imchat.ChatUiState
 import com.course.imchat.OnlineUser
 import com.course.imchat.data.GroupMember
 import com.course.imchat.data.MessageRepository
+import com.course.imchat.data.cache.MessageCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.update
 class GroupDelegate(
     private val state: MutableStateFlow<ChatUiState>,
     private val repository: MessageRepository,
+    private val messageCache: MessageCache? = null,
 ) {
     fun createGroup(name: String) {
         val cleanName = name.trim()
@@ -31,21 +33,30 @@ class GroupDelegate(
     }
 
     fun selectGroup(group: ChatGroup?) {
+        // 取消选中时回到公共频道，而不是留下 "group_" 这种半截 id
+        val chatId = if (group != null) "group_${group.groupId}" else PUBLIC_CHAT_ID
         state.update {
             it.copy(
                 nav = it.nav.copy(selectedGroup = group),
-                chat = it.chat.copy(selectedPrivateUser = null, currentChatId = "group_${group?.groupId ?: ""}"),
+                chat = it.chat.copy(selectedPrivateUser = null, currentChatId = chatId),
             )
         }
+        messageCache?.clearUnreadCount(chatId)
     }
 
     fun selectPrivateUser(user: OnlineUser?) {
+        val chatId = if (user != null) "private_${user.userId}" else PUBLIC_CHAT_ID
         state.update {
             it.copy(
                 nav = it.nav.copy(selectedGroup = null),
-                chat = it.chat.copy(selectedPrivateUser = user, currentChatId = "private_${user?.userId ?: ""}"),
+                chat = it.chat.copy(selectedPrivateUser = user, currentChatId = chatId),
             )
         }
+        messageCache?.clearUnreadCount(chatId)
+    }
+
+    private companion object {
+        const val PUBLIC_CHAT_ID = "public"
     }
 
     fun kickUser(targetUserId: String, groupId: String) = repository.kickUser(targetUserId, groupId)

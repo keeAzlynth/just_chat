@@ -1,5 +1,6 @@
 package com.course.imchat.ui
 
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ fun ChatApp(
     state: ChatUiState,
     messages: List<ChatMessage>,
     actions: ChatActions,
+    draftFlow: StateFlow<String>,
 ) {
     // ── Destructure actions into local vals (body references unchanged) ──
     val onServerUrlChange = actions.auth.onServerUrlChange
@@ -225,6 +227,7 @@ fun ChatApp(
                                 state = state,
                                 messages = messages,
                                 actions = chatActions,
+                                draftFlow = draftFlow,
                             )
                         }
                         Screen.Contacts -> {

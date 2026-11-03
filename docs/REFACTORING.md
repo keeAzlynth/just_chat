@@ -51,70 +51,98 @@
 
 ---
 
-## 三、还需要重构的地方（按收益排序）
+## 三、第三轮：四项结构性重构（已完成）
 
-### 1. `UiState` 太大（影响最大）
+### 1. UiState 拆分：先把「高频状态」挪出去
 
-`ChatUiState` 嵌了 auth/chat/ui/nav 四层，**任何字段变化都会让所有读它的 Composable 重组**。
-一条消息进来会连续触发 2~3 次 `_uiState.update{}`。
+完整拆成 5 个独立 StateFlow 给每个界面订阅，在这个项目里**收益有限** ——
+`ChatApp` 用 `when (currentScreen)` 只组合一个界面，跨界面失效本来就不存在。
+真正的痛点是**同一个界面内的高频写入**：
 
-建议：拆成 `messagesFlow` / `typingFlow` / `inputFlow` / `dialogFlow`，`ChatScreen` 只订阅需要的。
-Compose 的 `derivedStateOf` 只能缓解，不能替代。
+- `draft` 曾经在 `ChatState` 里，每敲一个字就 `_uiState.update{}` 一次 → 整棵状态树换新对象，
+  `ChatApp`／`ChatScreen`／`LazyColumn` 全部进入重组流程。
+- 现在 `draft` 是独立的 `MutableStateFlow<String>`，只有 `InputBar` 在内部 `collectAsState()`。
+  **每敲一个字的重新组合范围从「整屏」缩到「一个输入框」。**
+- 顺带把草稿落盘改成 500 ms 防抖：原来是每个字符一次 `SharedPreferences.apply()`。
+- 移除了 `ChatState.draft` / `canSend` 以及 `ChatUiState` 上的转发属性，避免两处真相。
 
-### 2. `MessageBubble.kt` 536 行
+### 2. `MessageBubble` 拆分
 
-一个函数里塞了 text/image/file/recalled/引用/表情/多选/时间戳。建议按 `messageType`
-拆成 `TextBubble` / `ImageBubble` / `FileBubble` / `RecalledBubble`，主函数只做分发和气泡外形。
+内容区按消息类型拆到 `MessageBubbleContent.kt`：
 
-### 3. `ChatActions` 40 个回调
+| Composable | 职责 |
+|---|---|
+| `RecalledContent` | 撤回提示 |
+| `ImageMessageContent` | 图片 + 点击查看 |
+| `FileMessageContent` | 文件卡片 |
+| `TextMessageContent` | Markdown 文本 + 时间 + 链接预览 |
 
-已经聚合过一次，但仍是「一个大对象」：任何一个回调变化都会让 `ChatContent` 重组的输入变脏。
-建议按区域拆 `MessageActions` / `GroupActions` / `InputActions` / `NavActions`，
-或用 `CompositionLocal` 下发到深层组件，避免一路透传。
+`MessageBubble` 现在只负责气泡外形、滑动回复、长按菜单和类型分发，536 行 → 480 行，
+且每种类型各自是独立的重组作用域，以后加语音/投票卡片不用再改那个巨型函数。
 
-### 4. 消息按 id 查找是 O(n)
+### 3. 消息 id 索引
 
-`saveEditMessage` / `addReaction` / `markDelivery` 都在 `messages.indexOfFirst { it.id == ... }`。
-500 条消息就是 500 次字符串比较，而且每次读 `SnapshotStateList` 元素都会建立快照读取。
+新增 `data/MessageIndex.kt`：`HashMap<String, Int>` 缓存 id→下标，
+用 size 判断是否重建，命中后再校验一次 `list[i].id == id` —— 本地消息收到服务端回执时
+id 会被替换（size 不变），靠这个校验自愈。
 
-建议：维护 `HashMap<String, ChatMessage>` + 位置索引，或者让 id 与顺序一致后二分。
+替换了 5 处 `messages.indexOfFirst { it.id == ... }`（编辑、加表情、撤回、回执、编辑事件），
+500 条消息下从 500 次字符串比较降到一次哈希查找。
 
-### 5. 未读数功能是断的
+### 4. 未读数接上
 
-`MessageCache.incrementUnreadCount` / `saveUnreadCount` **没有任何调用方**；
-而且它的实现是「每次遍历全部 SharedPreferences → 重建 Map → 更新 StateFlow」。
-要么接上（改用内存 Map + 批量落盘），要么直接删掉，别留地雷。
+之前 `MessageCache.incrementUnreadCount()` **没有任何调用方**，但 HomeScreen 和角标都在读
+`unreadCounts`，所以永远是 0。现在：
 
-### 6. `DateSeparator` 里的 `SimpleDateFormat`
-
-每个日期分隔符都要 new 两个 `SimpleDateFormat` 再做 `parse`。
-分隔符数量不多，但可以直接用 `TimeFormatter` + `remember` 算「今天/昨天/日期」。
-
-### 7. `MessageCache.loadUnreadCounts` 全量重建
-
-每次调用都 `prefs.all.forEach` 一遍并重建 Map。改成增量更新 + `apply()` 批量提交。
-
-### 8. 构建层面
-
-- R8 已经开了 minify/shrink，可以再开 `android.enableR8.fullMode`。
-- 加 Baseline Profile（Compose 首帧 + 冷启动），首屏能再快一截。
+- `MessageDelegate.onMessageArrived()` 在「消息不属于当前会话」时累加未读并发通知；
+- `GroupDelegate.selectGroup/selectPrivateUser` 切换会话时清零；
+- `MessageCache` 重写：内存 Map 为准，只在值变化时更新 StateFlow 和写单条 prefs，
+  不再每次遍历全部 SharedPreferences 重建 Map；
+- 顺带修了取消选中时 `currentChatId` 变成 `"group_"` 半截 id 的问题（改为回到 `public`）。
 
 ---
 
-## 四、怎么验证
+## 四、还剩的重构项（按收益排序）
+
+### 1. `ChatActions` 40 个回调
+
+已经聚合过一次，但仍是「一个大对象」。建议按区域拆 `MessageActions` / `GroupActions` /
+`InputActions` / `NavActions`，或用 `CompositionLocal` 下发到深层组件。
+
+### 2. `recordingSeconds` 还在 UiState 里
+
+录音时每 100 ms 更新一次 `ui.recordingSeconds`，同样会让整棵树换对象。
+建议和 `draft` 一样拆成独立 StateFlow，只在录音条那层订阅。
+
+### 3. `DateSeparator` 里的 `SimpleDateFormat`
+
+每个日期分隔符都要 new 两个 `SimpleDateFormat` 再 `parse`，可以直接用 `TimeFormatter` + `remember`。
+
+### 4. 发送后的 `markDelivery` 仍是两次线性扫描
+
+按文本匹配的兜底逻辑无法走索引。可以在发送时把待确认消息放进 `ArrayDeque`，
+回执到达时从队头匹配，避免每次扫描全表。
+
+### 5. 构建层面
+
+- R8 已经开了 minify/shrink，可以再开 `android.enableR8.fullMode`。
+- 加 Baseline Profile（Compose 首帧 + 冷启动）。
+
+---
+
+## 五、怎么验证
 
 ```bash
 export JAVA_HOME="D:/Android_Studio/jbr"
-./gradlew :app:testDebugUnitTest      # 35 个用例
+./gradlew :app:testDebugUnitTest      # 41 个用例
 ./gradlew :app:assembleDebug
 ```
-
-测试分布：
 
 | 测试类 | 用例 | 覆盖 |
 |---|---|---|
 | `MarkdownParserTest` | 10 | 死循环回归、行内/块级语法、缓存、性能基线 |
-| `TimeFormatterTest` | 5 | 与 java.time 随机比对、夏令时、跨时区、跨天边界 |
 | `ChatListUtilsTest` | 8 | 分组窗口、换人断开、跨天分隔 |
-| `MessageDeduplicatorTest` | 5 | 判重、FIFO 淘汰、补记、容量 |
 | `SmartReplyProviderTest` | 7 | 问候/问句/感谢/短消息/兜底 |
+| `MessageIndexTest` | 6 | 命中/未命中、增删、id 替换、2000 条比对 |
+| `TimeFormatterTest` | 5 | 与 java.time 随机比对、夏令时、跨时区、跨天 |
+| `MessageDeduplicatorTest` | 5 | 判重、FIFO 淘汰、补记、容量 |
