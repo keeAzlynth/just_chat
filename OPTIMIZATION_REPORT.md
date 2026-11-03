@@ -113,3 +113,58 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 - **代码质量**: 修复了弃用警告，使用了现代构建配置
 
 建议继续实施进一步的优化措施，特别是Baseline Profiles和Compose性能优化，以提升用户体验。
+
+---
+
+## Markdown 渲染性能优化（第二次）
+
+用真实样本压测解析器后，发现一个**会卡死 UI 的 bug** 和一处**明显的性能退化**。
+
+### 问题 1：标题行导致死循环（严重）
+
+`isBlockBoundary()` 认为「以 `#` 开头」就是块边界，但 `HEADER_REGEX.matches()` 要求整行
+恰好是 `# ` 才算标题。于是 `## 今天的改动` 这种正常标题：
+
+1. 不匹配任何块分支 → 落入段落分支；
+2. 段落分支的 `while (!isBlockBoundary(...))` 一次都不执行；
+3. 循环变量 `i` 不前进 → **while 外层死循环，UI 线程永久卡死**。
+
+修复方式：把行级分类收敛成唯一的 `classify(line)`，主循环和段落前瞻共用同一套判定，
+段落分支只要进入就必然消费一行，结构上不可能空转。
+
+### 问题 2：每次解析都重新编译正则
+
+`parseInlineOnly()` 内部 `val pattern = Regex(...)` 每次调用都构造一遍。
+实测一条 11 字的普通消息要 **155 µs**（正常应在 1 µs 量级）。
+
+修复：
+- 正则全部提成 `object` 的 `private val`，只编译一次；
+- 没有 Markdown 特征的文本走快速路径，直接返回单个 `Text` token；
+- 解析结果按原文做 LRU 缓存（128 条），滚动回来、重组、预览共用同一份结果；
+- `hasBlocks` 随解析结果一起返回，渲染时不再重复扫描 token。
+
+### 问题 3：渲染层重复计算
+
+- 块级内容每次重组都重新切分段落、重建 `AnnotatedString` → 改成 `remember(doc)` 预先分组 +
+  `remember(group, color, isDark)` 缓存；
+- `ChatScreen` 里 `remember(messages.size) { messagesToListItems(messages) }`：
+  size 不变时（编辑、撤回、表情回应）列表项不会更新，界面显示旧内容；
+  改成对 `SnapshotStateList` 求 `derivedStateOf`，内容变了才重算。
+
+### 效果
+
+| 场景 | 优化前 | 优化后 |
+|---|---|---|
+| `## 标题` 消息 | **死循环（ANR）** | 正常解析 |
+| 纯文本消息解析 | ~155 µs | 0.31 µs（缓存命中）/ 36 µs（首次） |
+| 1200 次解析总耗时 | 约 186 ms | **0.4 ms** |
+
+### 测试
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+`app/src/test/java/com/course/imchat/markdown/MarkdownParserTest.kt`，10 个用例：
+死循环回归（`@Test(timeout)`）、各种 `#` 开头、连续块级语法、行内格式、链接/图片、
+代码块隔离、下划线标识符、缓存命中、批量解析耗时。

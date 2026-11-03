@@ -24,130 +24,199 @@ sealed class MdToken {
     object Newline : MdToken()
 }
 
+/**
+ * 一次解析的结果。
+ *
+ * 除了 token 本身，还缓存了 [hasBlocks]：渲染时每帧都要判断"有没有块级内容"，
+ * 让它跟着解析结果一起算一次即可，不必每次重新扫 token 列表。
+ */
+class MdDocument(
+    val tokens: List<MdToken>,
+    val hasBlocks: Boolean,
+)
+
 // ── Single-pass parser: block structure → inline markup ───
 
 object MarkdownParser {
 
-    /** Top-level parse: split into lines, group into blocks, then inline-parse each block content. */
-    fun parse(text: String): List<MdToken> {
-        if (text.isBlank()) return listOf(MdToken.Text(text))
+    /** 缓存条数：一次聊天的可视消息基本都在这个范围内 */
+    private const val CACHE_SIZE = 256
+
+    // 访问序 LinkedHashMap 当 LRU 用；解析结果是不可变的，可以安全共享
+    private val cache = object : LinkedHashMap<String, MdDocument>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MdDocument>): Boolean =
+            size > CACHE_SIZE
+    }
+
+    /** 解析（带缓存）。同一段文本在滚动、重组、预览里重复出现时只解析一次。 */
+    fun parseDocument(text: String): MdDocument {
+        synchronized(cache) { cache[text] }?.let { return it }
+        val doc = parseUncached(text)
+        synchronized(cache) { cache[text] = doc }
+        return doc
+    }
+
+    /** 兼容旧调用点 */
+    fun parse(text: String): List<MdToken> = parseDocument(text).tokens
+
+    // ── 行级分类 ───────────────────────────────────────────
+    //
+    // 关键点：分类只做一次，主循环和段落前瞻都用同一个 [classify]。
+    // 旧实现里 isBlockBoundary() 和各个分支的判定条件不一致，
+    // 出现「是边界但没人处理」的行时游标不前进，直接死循环
+    // （比如 `## 标题`：isBlockBoundary 认为是边界，HEADER_REGEX.matches 却不认）。
+
+    private enum class LineKind { Blank, Fence, Hr, Quote, Unordered, Ordered, Header, Text }
+
+    private fun classify(line: String): LineKind {
+        val t = line.trim()
+        return when {
+            t.isEmpty() -> LineKind.Blank
+            t.startsWith("```") -> LineKind.Fence
+            HR_REGEX.matches(t) -> LineKind.Hr
+            t.startsWith(">") || t.startsWith("&gt;") -> LineKind.Quote
+            isUnorderedItem(t) -> LineKind.Unordered
+            ORDERED_REGEX.matches(t) -> LineKind.Ordered
+            HEADER_REGEX.containsMatchIn(t) -> LineKind.Header
+            else -> LineKind.Text
+        }
+    }
+
+    private fun isUnorderedItem(trimmed: String): Boolean =
+        (trimmed.startsWith("- ") || trimmed.startsWith("* ")) && !trimmed.startsWith("**")
+
+    // ── 主解析 ─────────────────────────────────────────────
+
+    private fun parseUncached(text: String): MdDocument {
+        if (text.isEmpty()) return MdDocument(listOf(MdToken.Text(text)), false)
+
+        // 快速路径：没有任何 Markdown 特征，连正则都不用跑
+        if (!NEEDS_MARKDOWN.containsMatchIn(text)) {
+            return MdDocument(listOf(MdToken.Text(text)), false)
+        }
 
         val lines = text.split("\n")
-        val tokens = mutableListOf<MdToken>()
+        val tokens = ArrayList<MdToken>(lines.size)
+        var hasBlocks = false
         var i = 0
 
         while (i < lines.size) {
             val line = lines[i]
             val trimmed = line.trim()
 
-            when {
-                // ── Code block (fenced) ─────────────────────────────────
-                trimmed.startsWith("```") -> {
+            when (classify(line)) {
+                LineKind.Blank -> i++
+
+                // ── 代码块 ─────────────────────────────────────
+                LineKind.Fence -> {
                     val lang = trimmed.removePrefix("```").trim()
                     val sb = StringBuilder()
                     i++
                     while (i < lines.size && !lines[i].trim().startsWith("```")) {
-                        if (sb.isNotEmpty()) sb.append("\n")
+                        if (sb.isNotEmpty()) sb.append('\n')
                         sb.append(lines[i])
                         i++
                     }
-                    i++ // skip closing ```
+                    if (i < lines.size) i++ // 跳过结束围栏
                     tokens.add(MdToken.CodeBlock(sb.toString(), lang))
+                    hasBlocks = true
                 }
 
-                // ── Horizontal rule ─────────────────────────────────────
-                trimmed.matches(HR_REGEX) -> {
+                // ── 分隔线 ─────────────────────────────────────
+                LineKind.Hr -> {
                     tokens.add(MdToken.HorizontalRule)
+                    hasBlocks = true
                     i++
                 }
 
-                // ── Blockquote ──────────────────────────────────────────
-                trimmed.startsWith(">") || (trimmed.startsWith("&gt;")) -> {
-                    val quoteLines = mutableListOf<String>()
+                // ── 引用 ───────────────────────────────────────
+                LineKind.Quote -> {
+                    val quoteLines = ArrayList<String>()
                     while (i < lines.size) {
-                        val tl = lines[i].trimStart()
-                        if (tl.startsWith(">") || tl.startsWith("&gt;")) {
+                        val kind = classify(lines[i])
+                        if (kind == LineKind.Quote) {
                             quoteLines.add(
-                                tl.removePrefix("&gt;").removePrefix(">").trimStart()
+                                lines[i].trimStart().removePrefix("&gt;").removePrefix(">").trimStart()
                             )
                             i++
-                        } else if (lines[i].isBlank()) {
+                        } else if (kind == LineKind.Blank) {
+                            // 引用中间的空白保留，但遇到非引用行就结束
                             quoteLines.add("")
                             i++
                         } else {
                             break
                         }
                     }
-                    val body = quoteLines.joinToString("\n").trim()
-                    tokens.add(MdToken.Blockquote(parseInlineOnly(body)))
+                    tokens.add(MdToken.Blockquote(parseInlineOnly(quoteLines.joinToString("\n").trim())))
+                    hasBlocks = true
                 }
 
-                // ── Unordered list ──────────────────────────────────────
-                isUnorderedListItem(line) -> {
-                    val items = mutableListOf<List<MdToken>>()
-                    while (i < lines.size && isUnorderedListItem(lines[i])) {
-                        val itemText = lines[i].trimStart().removePrefix("-").removePrefix("*").trimStart()
+                // ── 无序列表 ───────────────────────────────────
+                LineKind.Unordered -> {
+                    val items = ArrayList<List<MdToken>>()
+                    while (i < lines.size && classify(lines[i]) == LineKind.Unordered) {
+                        val itemText = lines[i].trimStart()
+                            .removePrefix("-").removePrefix("*").trimStart()
                         items.add(parseInlineOnly(itemText))
                         i++
                     }
                     tokens.add(MdToken.UnorderedList(items))
+                    hasBlocks = true
                 }
 
-                // ── Ordered list ────────────────────────────────────────
-                trimmed.matches(ORDERED_REGEX) -> {
-                    val items = mutableListOf<List<MdToken>>()
-                    while (i < lines.size && lines[i].trimStart().matches(ORDERED_REGEX)) {
+                // ── 有序列表 ───────────────────────────────────
+                LineKind.Ordered -> {
+                    val items = ArrayList<List<MdToken>>()
+                    while (i < lines.size && classify(lines[i]) == LineKind.Ordered) {
                         val itemText = lines[i].trimStart().replace(ORDERED_EXTRACT, "")
                         items.add(parseInlineOnly(itemText))
                         i++
                     }
                     tokens.add(MdToken.OrderedList(items))
+                    hasBlocks = true
                 }
 
-                // ── Header ──────────────────────────────────────────────
-                trimmed.matches(HEADER_REGEX) -> {
+                // ── 标题 ───────────────────────────────────────
+                LineKind.Header -> {
                     val level = line.trimStart().takeWhile { it == '#' }.length.coerceIn(1, 6)
-                    val content = trimmed.drop(level).trimStart()
+                    val content = line.trimStart().drop(level).trimStart()
                     tokens.add(MdToken.Header(level, content))
+                    hasBlocks = true
                     i++
                 }
 
-                // ── Regular paragraph (inline only) ─────────────────────
-                else -> {
-                    val paraLines = mutableListOf<String>()
-                    while (i < lines.size && !isBlockBoundary(lines[i])) {
+                // ── 普通段落 ───────────────────────────────────
+                LineKind.Text -> {
+                    val paraLines = ArrayList<String>(2)
+                    // classify(line) == Text 保证至少消费一行，游标一定前进
+                    while (i < lines.size && classify(lines[i]) == LineKind.Text) {
                         paraLines.add(lines[i])
                         i++
                     }
-                    val body = paraLines.joinToString("\n")
-                    tokens.addAll(parseInlineOnly(body))
+                    tokens.addAll(parseInlineOnly(paraLines.joinToString("\n")))
                 }
             }
         }
-        return tokens
+
+        if (tokens.any { it is MdToken.Image }) hasBlocks = true
+        return MdDocument(tokens, hasBlocks)
     }
 
-    // ── Inline parsing ─────────────────────────────────────
+    // ── 行内解析 ───────────────────────────────────────────
+
+    /** 含这些字符才需要跑行内正则；纯中文句子直接整段输出 */
+    private val NEEDS_INLINE = Regex("[`*~\\[\\]!@]|https?://")
 
     private fun parseInlineOnly(text: String): List<MdToken> {
-        val tokens = mutableListOf<MdToken>()
+        if (text.isEmpty()) return emptyList()
+        if (!NEEDS_INLINE.containsMatchIn(text)) {
+            return listOf(MdToken.Text(text))
+        }
 
-        // Pattern order matters — longer/more specific first
-        val pattern = Regex(
-            """!\[([^\]]+)]\(([^)]+)\)""" +          // Image
-            """|\[([^\]]+)]\(([^)]+)\)""" +           // Link
-            """|@(\w[\w.]*)""" +                      // Mention
-            """|\*\*(.+?)\*\*""" +                     // Bold
-            """|(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])""" + // Italic (single *, not bold)
-            """|(?<![~])~~(.+?)~~(?![~])""" +          // Strikethrough
-            """|`([^`]+)`""" +                        // Inline code
-            """|(https?://\S+)"""                      // Raw URL
-        )
-
-        val matches = pattern.findAll(text).toList()
+        val tokens = ArrayList<MdToken>(8)
         var lastEnd = 0
 
-        for (m in matches) {
+        for (m in INLINE_REGEX.findAll(text)) {
             if (m.range.first > lastEnd) {
                 tokens.add(MdToken.Text(text.substring(lastEnd, m.range.first)))
             }
@@ -167,29 +236,26 @@ object MarkdownParser {
         if (lastEnd < text.length) {
             tokens.add(MdToken.Text(text.substring(lastEnd)))
         }
-
         return tokens
     }
 
-    // ── Helpers ────────────────────────────────────────────
-
-    private fun isBlockBoundary(line: String): Boolean {
-        val t = line.trimStart()
-        if (t.isEmpty()) return false  // blank lines consumed within paragraph
-        return t.startsWith("```") || t.startsWith("#") ||
-               t.startsWith(">") || t.startsWith("&gt;") ||
-               isUnorderedListItem(line) ||
-               t.matches(ORDERED_REGEX) ||
-               t.matches(HR_REGEX)
-    }
-
-    private fun isUnorderedListItem(line: String): Boolean {
-        val t = line.trimStart()
-        return (t.startsWith("- ") || t.startsWith("* ")) && !t.startsWith("**")
-    }
+    // ── 预编译正则（旧实现每次解析都 new 一个，单条消息就多花上百微秒）──
 
     private val HEADER_REGEX = Regex("^#{1,6}\\s")
     private val ORDERED_REGEX = Regex("^\\d+\\.\\s.*")
     private val ORDERED_EXTRACT = Regex("^\\d+\\.\\s")
     private val HR_REGEX = Regex("^(-{3,}|\\*{3,}|_{3,})\\s*$")
+
+    private val NEEDS_MARKDOWN = Regex("[`*~#>\\[\\]!@]|https?://")
+
+    private val INLINE_REGEX = Regex(
+        """!\[([^\]]+)]\(([^)]+)\)""" +                  // Image
+        """|\[([^\]]+)]\(([^)]+)\)""" +                   // Link
+        """|@(\w[\w.]*)""" +                              // Mention
+        """|\*\*(.+?)\*\*""" +                            // Bold
+        """|(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])""" + // Italic
+        """|(?<![~])~~(.+?)~~(?![~])""" +                 // Strikethrough
+        """|`([^`]+)`""" +                                // Inline code
+        """|(https?://\S+)"""                             // Raw URL
+    )
 }

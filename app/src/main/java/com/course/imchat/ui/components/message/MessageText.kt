@@ -63,20 +63,14 @@ fun MessageText(
     modifier: Modifier = Modifier,
 ) {
     val isDark = isSystemInDarkTheme()
-    val tokens = remember(text) { MarkdownParser.parse(text) }
 
-    // Check if there are any block-level tokens
-    val hasBlocks = tokens.any {
-        it is MdToken.CodeBlock || it is MdToken.Header ||
-        it is MdToken.Blockquote || it is MdToken.UnorderedList ||
-        it is MdToken.OrderedList || it is MdToken.HorizontalRule ||
-        it is MdToken.Image
-    }
+    // 解析结果带缓存，且 hasBlocks 随结果一起返回，不再每帧重扫 token
+    val doc = remember(text) { MarkdownParser.parseDocument(text) }
 
-    if (!hasBlocks) {
+    if (!doc.hasBlocks) {
         // Fast path: all inline — single Text composable
-        val annotated = remember(tokens, color, isDark) {
-            buildInlineAnnotatedString(tokens, color, isDark)
+        val annotated = remember(doc, color, isDark) {
+            buildInlineAnnotatedString(doc.tokens, color, isDark)
         }
         Text(
             text = annotated,
@@ -84,40 +78,67 @@ fun MessageText(
             modifier = modifier,
         )
     } else {
-        // Block layout — Column with mixed inline groups and blocks
+        // Block layout — 段落分组只算一次，重组时不再重复切分
+        val groups = remember(doc) { splitIntoGroups(doc.tokens) }
         Column(modifier = modifier.fillMaxWidth()) {
-            var i = 0
-            while (i < tokens.size) {
-                val token = tokens[i]
-                when (token) {
-                    // ── Block tokens ──────────────────────────────────
-                    is MdToken.Header -> HeaderBlock(token, color, isDark)
-                    is MdToken.CodeBlock -> CodeBlockView(token, isDark)
-                    is MdToken.Blockquote -> BlockquoteBlock(token, color, isDark)
-                    is MdToken.UnorderedList -> UnorderedListBlock(token, color, isDark)
-                    is MdToken.OrderedList -> OrderedListBlock(token, color, isDark)
-                    is MdToken.HorizontalRule -> HorizontalRuleBlock(isDark)
-                    is MdToken.Image -> InlineImage(token, isDark)
-
-                    // ── Inline tokens (group consecutive) ────────────
-                    else -> {
-                        val end = findNextBlock(tokens, i)
-                        val annotated = buildInlineAnnotatedString(
-                            tokens.subList(i, end), color, isDark
-                        )
+            for (group in groups) {
+                when (group) {
+                    is MdGroup.Block -> when (val token = group.token) {
+                        is MdToken.Header -> HeaderBlock(token, color, isDark)
+                        is MdToken.CodeBlock -> CodeBlockView(token, isDark)
+                        is MdToken.Blockquote -> BlockquoteBlock(token, color, isDark)
+                        is MdToken.UnorderedList -> UnorderedListBlock(token, color, isDark)
+                        is MdToken.OrderedList -> OrderedListBlock(token, color, isDark)
+                        is MdToken.HorizontalRule -> HorizontalRuleBlock(isDark)
+                        is MdToken.Image -> InlineImage(token, isDark)
+                        else -> Unit
+                    }
+                    is MdGroup.Inline -> {
+                        val annotated = remember(group.tokens, color, isDark) {
+                            buildInlineAnnotatedString(group.tokens, color, isDark)
+                        }
                         if (annotated.isNotEmpty()) {
                             Text(
                                 text = annotated,
                                 style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                             )
                         }
-                        i = end - 1
                     }
                 }
-                i++
             }
         }
     }
+}
+
+// ── 段落分组 ─────────────────────────────────────────────
+
+/** 块级 token 单独成组，连续的行内 token 合成一段 */
+private sealed interface MdGroup {
+    data class Block(val token: MdToken) : MdGroup
+    data class Inline(val tokens: List<MdToken>) : MdGroup
+}
+
+private fun isBlockToken(token: MdToken): Boolean = when (token) {
+    is MdToken.CodeBlock, is MdToken.Header, is MdToken.Blockquote,
+    is MdToken.UnorderedList, is MdToken.OrderedList,
+    is MdToken.HorizontalRule, is MdToken.Image -> true
+    else -> false
+}
+
+/** 单次遍历切成 [MdGroup]，复杂度 O(n) */
+private fun splitIntoGroups(tokens: List<MdToken>): List<MdGroup> {
+    val groups = ArrayList<MdGroup>(4)
+    var inlineStart = 0
+
+    for (i in tokens.indices) {
+        if (isBlockToken(tokens[i])) {
+            if (i > inlineStart) groups.add(MdGroup.Inline(tokens.subList(inlineStart, i)))
+            groups.add(MdGroup.Block(tokens[i]))
+            inlineStart = i + 1
+        }
+    }
+    if (inlineStart < tokens.size) groups.add(MdGroup.Inline(tokens.subList(inlineStart, tokens.size)))
+    return groups
 }
 
 // ── Block renderers ──────────────────────────────────────
@@ -204,7 +225,9 @@ private fun BlockquoteBlock(token: MdToken.Blockquote, color: Color, isDark: Boo
                         color = color.copy(alpha = 0.85f),
                     )
                     else -> {
-                        val annotated = buildInlineAnnotatedString(listOf(child), color.copy(alpha = 0.85f), isDark)
+                        val annotated = remember(child, color, isDark) {
+                            buildInlineAnnotatedString(listOf(child), color.copy(alpha = 0.85f), isDark)
+                        }
                         Text(text = annotated, style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp))
                     }
                 }
@@ -225,7 +248,9 @@ private fun UnorderedListBlock(token: MdToken.UnorderedList, color: Color, isDar
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.width(16.dp),
                 )
-                val annotated = buildInlineAnnotatedString(itemTokens, color, isDark)
+                val annotated = remember(itemTokens, color, isDark) {
+                    buildInlineAnnotatedString(itemTokens, color, isDark)
+                }
                 Text(
                     text = annotated,
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
@@ -247,7 +272,9 @@ private fun OrderedListBlock(token: MdToken.OrderedList, color: Color, isDark: B
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.width(20.dp),
                 )
-                val annotated = buildInlineAnnotatedString(itemTokens, color, isDark)
+                val annotated = remember(itemTokens, color, isDark) {
+                    buildInlineAnnotatedString(itemTokens, color, isDark)
+                }
                 Text(
                     text = annotated,
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
@@ -302,19 +329,6 @@ private fun InlineImage(token: MdToken.Image, isDark: Boolean) {
 }
 
 // ── Inline annotated string builder ──────────────────────
-
-/** Find next block-level token from [start] */
-private fun findNextBlock(tokens: List<MdToken>, start: Int): Int {
-    for (i in start until tokens.size) {
-        val t = tokens[i]
-        if (t is MdToken.CodeBlock || t is MdToken.Header ||
-            t is MdToken.Blockquote || t is MdToken.UnorderedList ||
-            t is MdToken.OrderedList || t is MdToken.HorizontalRule ||
-            t is MdToken.Image
-        ) return i
-    }
-    return tokens.size
-}
 
 /** Build a single AnnotatedString from inline tokens */
 private fun buildInlineAnnotatedString(tokens: List<MdToken>, color: Color, isDark: Boolean): AnnotatedString {

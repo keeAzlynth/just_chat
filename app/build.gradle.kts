@@ -102,4 +102,7 @@ dependencies {
 
     // ── Local storage ───────────────────────────────
     implementation(libs.preference.ktx)
+
+    // ── Unit tests（纯 JVM，跑 Markdown 解析/性能回归）──
+    testImplementation("junit:junit:4.13.2")
 }

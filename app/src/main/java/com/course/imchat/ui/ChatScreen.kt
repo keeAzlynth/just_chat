@@ -225,7 +225,13 @@ private fun ChatContent(
         }
     }
 
-    val listItems = remember(messages.size) { messagesToListItems(messages) }
+    // 旧写法 remember(messages.size) 有两个问题：
+    //   1. 消息被编辑/撤回时 size 不变 → 列表项不刷新，界面显示旧文本；
+    //   2. 每来一条消息就把整份列表重新分组一次。
+    // 改成对 SnapshotStateList 求派生状态：内容变了才重算，引用不变则复用。
+    val listItems by remember(messages) {
+        derivedStateOf { messagesToListItems(messages) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ChatBackground()
