@@ -171,6 +171,9 @@ class MessageDelegate(
     // ── Smart reply ───────────────────────────────────
     fun computeSmartSuggestions() {
         val suggestions = SmartReplyProvider.getSuggestions(messages.takeLast(5), state.value.auth.myUserId)
+        // 建议没变就别改 UiState：一次 update 会让整棵状态树换新对象，
+        // 所有读 uiState 的 Composable 都要重组一遍。
+        if (suggestions == state.value.ui.smartSuggestions) return
         state.update { it.copy(ui = it.ui.copy(smartSuggestions = suggestions)) }
     }
 

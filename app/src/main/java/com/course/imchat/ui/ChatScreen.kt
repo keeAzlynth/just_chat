@@ -74,48 +74,12 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     actions: ChatActions,
 ) {
-    // Destructure for backward-compat with body references
-    val onSend = actions.message.onSend
-    val onDraftChange = actions.message.onDraftChange
-    val onReconnect = actions.auth.onReconnect
-    val onLogout = actions.auth.onLogout
+    // 外层只用到这 4 个回调，其余全部由 ChatContent 通过 actions 直接取用。
+    // 原先把 40 个回调在这里解构一遍再不用，纯粹是噪音。
     val onToggleOnlineUsers = actions.group.onToggleOnlineUsers
     val onSelectPrivateUser = actions.group.onSelectPrivateUser
-    val onAttachFile = actions.attachment.onAttachFile
-    val onPickImage = actions.attachment.onPickImage
-    val onTakePhoto = actions.attachment.onTakePhoto
-    val onPickFile = actions.attachment.onPickFile
-    val onToggleSearch = actions.message.onToggleSearch
-    val onSearchQueryChange = actions.message.onSearchQueryChange
-    val onRecallMessage = actions.message.onRecallMessage
     val onSelectGroup = actions.group.onSelectGroup
     val onCreateGroup = actions.group.onCreateGroup
-    val onQuoteMessage = actions.message.onQuoteMessage
-    val onCancelQuote = actions.message.onCancelQuote
-    val onDeleteMessage = actions.message.onDeleteMessage
-    val onEditMessage = actions.message.onEditMessage
-    val onCancelEditMessage = actions.message.onCancelEditMessage
-    val onSaveEditMessage = actions.message.onSaveEditMessage
-    val onForwardMessage = actions.message.onForwardMessage
-    val onPinMessage = actions.pin.onPinMessage
-    val onSaveToCollection = actions.pin.onSaveToCollection
-    val onSelectMessage = actions.message.onSelectMessage
-    val onToggleMultiSelect = actions.message.onToggleMultiSelect
-    val onDeleteSelected = actions.message.onDeleteSelected
-    val onForwardSelected = actions.message.onForwardSelected
-    val onCancelMultiSelect = actions.message.onCancelMultiSelect
-    val onSelectAll = actions.message.onSelectAll
-    val onUnpinCurrent = actions.pin.onUnpinCurrent
-    val onAddReaction = actions.message.onAddReaction
-    val onShowReactionPicker = actions.message.onShowReactionPicker
-    val onDismissReactionPicker = actions.message.onDismissReactionPicker
-    val onShowMentionPicker = actions.input.onShowMentionPicker
-    val onDismissMentionPicker = actions.input.onDismissMentionPicker
-    val onSelectMention = actions.input.onSelectMention
-    val onStartVoiceRecording = actions.input.onStartVoiceRecording
-    val onStopVoiceRecording = actions.input.onStopVoiceRecording
-    val onOpenSettings = actions.nav.onOpenSettings
-    val onBack = actions.nav.onBack
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()

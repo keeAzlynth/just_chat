@@ -67,38 +67,47 @@ object SmartReplyProvider {
             text.matchesConfirmation() -> confirmReplies
 
             // Short message → emoji replies
-            text.length <= 4 -> emojiReplies + generalReplies.take(3)
+            text.length <= 4 -> shortReplies
 
             // Default general replies
-            else -> generalReplies.take(4)
+            else -> defaultReplies
         }
     }
 
     // ── Pattern matching ─────────────────────────────────
+    //
+    // 这些词表原本写在函数体里，每次调用都 new 一个 List；
+    // getSuggestions 每条消息都跑，等于每条消息白扔 5 个对象。
+    // 提到 object 级别用 Array 存，遍历退化成「数组 + 下标」，没有迭代器分配。
 
-    private fun String.matchesGreeting(): Boolean {
-        val patterns = listOf("你好", "hi", "hello", "嗨", "早", "晚上好", "下午好")
-        return patterns.any { this.contains(it, ignoreCase = true) }
-    }
+    private val greetingPatterns = arrayOf("你好", "hi", "hello", "嗨", "早", "晚上好", "下午好")
+    private val questionPatterns = arrayOf("什么", "怎么", "如何", "为什么", "哪里", "谁", "哪个", "可以", "能不能")
+    private val appreciationPatterns = arrayOf("谢谢", "感谢", "多谢", "辛苦", "thx", "thanks")
+    private val farewellPatterns = arrayOf("再见", "拜拜", "bye", "晚安", "走了", "先下了")
+    private val confirmationPatterns = arrayOf("帮我", "麻烦", "请", "pls", "please", "看一下", "处理")
+
+    // 短消息 / 兜底用的推荐组合只算一次（原来每次调用都在 + 和 take 里新建 List）
+    private val shortReplies: List<String> = emojiReplies + generalReplies.subList(0, 3)
+    private val defaultReplies: List<String> = generalReplies.subList(0, 4)
+
+    private fun String.matchesGreeting(): Boolean = containsAny(greetingPatterns, true)
 
     private fun String.matchesQuestion(): Boolean {
-        val hasQuestionMark = this.endsWith("?") || this.endsWith("？") || this.endsWith("吗")
-        val questionWords = listOf("什么", "怎么", "如何", "为什么", "哪里", "谁", "哪个", "可以", "能不能")
-        return hasQuestionMark || questionWords.any { this.contains(it) }
+        if (endsWith("?") || endsWith("？") || endsWith("吗")) return true
+        return containsAny(questionPatterns, false)
     }
 
-    private fun String.matchesAppreciation(): Boolean {
-        val patterns = listOf("谢谢", "感谢", "多谢", "辛苦", "thx", "thanks")
-        return patterns.any { this.contains(it, ignoreCase = true) }
-    }
+    private fun String.matchesAppreciation(): Boolean = containsAny(appreciationPatterns, true)
 
-    private fun String.matchesFarewell(): Boolean {
-        val patterns = listOf("再见", "拜拜", "bye", "晚安", "走了", "先下了")
-        return patterns.any { this.contains(it, ignoreCase = true) }
-    }
+    private fun String.matchesFarewell(): Boolean = containsAny(farewellPatterns, true)
 
-    private fun String.matchesConfirmation(): Boolean {
-        val patterns = listOf("帮我", "麻烦", "请", "pls", "please", "看一下", "处理")
-        return patterns.any { this.contains(it, ignoreCase = true) }
+    private fun String.matchesConfirmation(): Boolean = containsAny(confirmationPatterns, true)
+
+    /** 数组 + 下标遍历，避免 `Iterable.any {}` 的 lambda 与迭代器分配 */
+    private fun String.containsAny(patterns: Array<String>, ignoreCase: Boolean): Boolean {
+        for (i in patterns.indices) {
+            if (contains(patterns[i], ignoreCase = ignoreCase)) return true
+        }
+        return false
     }
 }
